@@ -129,4 +129,5 @@ dmypy.json
 .pyre/
 
 # custom
-Dataset/
+dataset/
+.vscode/*
