@@ -2,6 +2,7 @@ from torch.utils.data import Dataset, DataLoader
 from pytorch_lightning import LightningDataModule
 import torch
 import os
+import numpy as np
 from pathlib import Path
 from tqdm import tqdm
 import shutil
@@ -89,32 +90,30 @@ class AsocaDataModule(LightningDataModule):
         return DataLoader(valid_split, batch_size=batch_size, num_workers=12)
 
     def get_num_patches(self, filepaths):
-        total = 0
+        patch_counts = []
         for filepath in filepaths:
             volume_shape = nrrd.read_header(str(filepath))['sizes']
-            n_patches = (volume_shape[0] // self.patch_size) * \
-                        (volume_shape[1] // self.patch_size) * \
-                        (volume_shape[2] // self.patch_size)
-            total += n_patches
-        return total
+            n_patches = np.prod(volume_shape // self.patch_size)
+            patch_counts.append(n_patches)
+        return patch_counts
     
     def get_patches(self, volume):
-        volume = torch.Tensor(volume)
+        volume = torch.from_numpy(volume)
         return volume.unfold(0, self.patch_size, self.patch_size) \
                     .unfold(1, self.patch_size, self.patch_size) \
                     .unfold(2, self.patch_size, self.patch_size) \
                     .reshape(-1, self.patch_size, self.patch_size, self.patch_size) \
                     .numpy()
 
-    def populate_dataset(self, data_paths, hdf_group, ds_name, n_patches):
-        ds_size = (n_patches, self.patch_size, self.patch_size, self.patch_size)
+    def populate_dataset(self, data_paths, hdf_group, ds_name, patch_counts):
+        N = sum(patch_counts)
+        ds_size = (N, self.patch_size, self.patch_size, self.patch_size)
         ds = hdf_group.create_dataset(ds_name, ds_size)
-        last = 0
-        for filepath in tqdm(data_paths):
+        for i, filepath in enumerate(tqdm(data_paths)):
             volume, _ = nrrd.read(filepath, index_order='C')
             patches = self.get_patches(volume)
-            ds[last:last+len(patches),...] = patches
-            last += len(patches)
+            p_start, p_end = sum(patch_counts[:i]), sum(patch_counts[:i+1])
+            ds[p_start:p_end,...] = patches
     
     def build_hdf5_dataset(self, volume_path, mask_path, output_path='asoca.hdf5'):
         with h5py.File(output_path, 'w') as f:
@@ -129,18 +128,18 @@ class AsocaDataModule(LightningDataModule):
             volume_paths_valid = volume_paths[30:]
             mask_paths_valid = mask_paths[30:]
             
-            N_train = self.get_num_patches(volume_paths_train)
-            N_valid = self.get_num_patches(volume_paths_valid)
+            patch_cnts_train = self.get_num_patches(volume_paths_train)
+            patch_cnts_valid = self.get_num_patches(volume_paths_valid)
             
             train_group = f.create_group('train')
             logger.info('Building train dataset')
-            self.populate_dataset(volume_paths_train, train_group, 'volumes', N_train)                    
-            self.populate_dataset(mask_paths_train, train_group, 'masks', N_train)
+            self.populate_dataset(volume_paths_train, train_group, 'volumes', patch_cnts_train)                    
+            self.populate_dataset(mask_paths_train, train_group, 'masks', patch_cnts_train)
             
             logger.info('Building valid dataset')
             valid_group = f.create_group('valid')
-            self.populate_dataset(volume_paths_valid, valid_group, 'volumes', N_valid)                    
-            self.populate_dataset(mask_paths_valid, valid_group, 'masks', N_valid)
+            self.populate_dataset(volume_paths_valid, valid_group, 'volumes', patch_cnts_valid)                    
+            self.populate_dataset(mask_paths_valid, valid_group, 'masks', patch_cnts_valid)
         
 
 if __name__ == '__main__':
