@@ -32,7 +32,7 @@ class AsocaDataset(Dataset):
         return self.len
 
     def __getitem__(self, index):
-        self.ds = h5py.File(self.ds_path, 'r')[self.split] # FIXME: might not work with multiprocessing
+        self.ds = h5py.File(self.ds_path, 'r')[self.split]
         x, y = self.ds['volumes'][index], self.ds['masks'][index]
         x, y = self.transform(x), self.transform(y)
         return x.unsqueeze(0), y.unsqueeze(0)
@@ -50,8 +50,12 @@ class AsocaDataModule(LightningDataModule):
         if ds_path.is_file():
             with h5py.File(ds_path, 'r') as f:
                 if self.patch_size == f.attrs['patch_size']:
-                    logger.info(f'Using HDF5 dataset found at: {ds_path}')
-                    return
+                    if not all( key in f.keys() for key in ['train', 'valid']):
+                        logger.info(f'Fould corrupted HDF5 dataset. Building from scratch.')
+                        os.remove(ds_path)
+                    else:
+                        logger.info(f'Using HDF5 dataset found at: {ds_path}')
+                        return
                 else:
                     logger.info(f'Building a HDF5 dataset with patch size: {self.patch_size}')
         else:
@@ -90,30 +94,48 @@ class AsocaDataModule(LightningDataModule):
         return DataLoader(valid_split, batch_size=batch_size, num_workers=12)
 
     def get_num_patches(self, filepaths):
-        patch_counts = []
+        total = 0
         for filepath in filepaths:
             volume_shape = nrrd.read_header(str(filepath))['sizes']
             n_patches = np.prod(volume_shape // self.patch_size)
-            patch_counts.append(n_patches)
-        return patch_counts
-    
-    def get_patches(self, volume):
+            total += n_patches
+        return total
+
+    def get_patches(self, volume, ds_name='volumes'):
         volume = torch.from_numpy(volume)
-        return volume.unfold(0, self.patch_size, self.patch_size) \
+        volume = volume.unfold(0, self.patch_size, self.patch_size) \
                     .unfold(1, self.patch_size, self.patch_size) \
                     .unfold(2, self.patch_size, self.patch_size) \
-                    .reshape(-1, self.patch_size, self.patch_size, self.patch_size) \
-                    .numpy()
+                    .reshape(-1, self.patch_size, self.patch_size, self.patch_size)
+        is_used = (volume.sum(axis=[1,2,3]) > 0).numpy() if ds_name == 'masks' else None
+        return volume.numpy(), is_used 
 
-    def populate_dataset(self, data_paths, hdf_group, ds_name, patch_counts):
-        N = sum(patch_counts)
-        ds_size = (N, self.patch_size, self.patch_size, self.patch_size)
-        ds = hdf_group.create_dataset(ds_name, ds_size)
-        for i, filepath in enumerate(tqdm(data_paths)):
-            volume, _ = nrrd.read(filepath, index_order='C')
-            patches = self.get_patches(volume)
-            p_start, p_end = sum(patch_counts[:i]), sum(patch_counts[:i+1])
-            ds[p_start:p_end,...] = patches
+    def populate_dataset(self, data_paths, hdf_group, num_patches):
+        max_ds_size = (num_patches, self.patch_size, self.patch_size, self.patch_size)
+        t_volume_ds = hdf_group.create_dataset('volumes_temp', max_ds_size)
+        t_mask_ds = hdf_group.create_dataset('masks_temp', max_ds_size)
+
+        last = 0 
+        for volume_path, mask_path in tqdm(list(data_paths)):
+            mask, _ = nrrd.read(mask_path, index_order='C')
+            mask_patches, is_used = self.get_patches(mask, 'masks')
+            mask_patches = mask_patches[is_used]
+            t_mask_ds[last:last+len(mask_patches),...] = mask_patches
+
+            volume, _ = nrrd.read(volume_path, index_order='C')
+            volume_patches, _ = self.get_patches(volume, 'volumes')
+            volume_patches = volume_patches[is_used]
+            t_volume_ds[last:last+len(volume_patches),...] = volume_patches
+
+            last += len(volume_patches)
+
+        ds_size = (last, *max_ds_size[1:])
+        volume_ds = hdf_group.create_dataset('volumes', ds_size)
+        mask_ds = hdf_group.create_dataset('masks', ds_size)
+        volume_ds[:] = t_volume_ds[:last]
+        mask_ds[:] = t_mask_ds[:last]
+        del t_volume_ds
+        del t_mask_ds
     
     def build_hdf5_dataset(self, volume_path, mask_path, output_path='asoca.hdf5'):
         with h5py.File(output_path, 'w') as f:
@@ -122,29 +144,24 @@ class AsocaDataModule(LightningDataModule):
             volume_paths = [ Path(volume_path, filename) for filename in os.listdir(volume_path) ]
             mask_paths = [ Path(mask_path, filename) for filename in os.listdir(mask_path) ]
             
-            volume_paths_train = volume_paths[:30]
-            mask_paths_train = mask_paths[:30]
+            train_paths = zip(volume_paths[:30], mask_paths[:30])
+            valid_paths = zip(volume_paths[30:], mask_paths[30:])
             
-            volume_paths_valid = volume_paths[30:]
-            mask_paths_valid = mask_paths[30:]
+            N_train_max = self.get_num_patches(volume_paths[:30])
+            N_valid_max = self.get_num_patches(volume_paths[30:])
             
-            patch_cnts_train = self.get_num_patches(volume_paths_train)
-            patch_cnts_valid = self.get_num_patches(volume_paths_valid)
-            
-            train_group = f.create_group('train')
             logger.info('Building train dataset')
-            self.populate_dataset(volume_paths_train, train_group, 'volumes', patch_cnts_train)                    
-            self.populate_dataset(mask_paths_train, train_group, 'masks', patch_cnts_train)
+            train_group = f.create_group('train')
+            self.populate_dataset(train_paths, train_group, N_train_max)                    
             
             logger.info('Building valid dataset')
             valid_group = f.create_group('valid')
-            self.populate_dataset(volume_paths_valid, valid_group, 'volumes', patch_cnts_valid)                    
-            self.populate_dataset(mask_paths_valid, valid_group, 'masks', patch_cnts_valid)
+            self.populate_dataset(valid_paths, valid_group, N_valid_max)                    
         
 
 if __name__ == '__main__':
 
-    asoca_dm = AsocaDataModule(batch_size=8, patch_size=128)
+    asoca_dm = AsocaDataModule(batch_size=16, patch_size=64)
     asoca_dm.prepare_data()
     asoca_dm.setup()
     train_dl = asoca_dm.train_dataloader()
