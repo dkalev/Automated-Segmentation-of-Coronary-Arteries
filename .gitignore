@@ -131,3 +131,5 @@ dmypy.json
 # custom
 dataset/
 .vscode/*
+*logs*/**/*
+out/**/*

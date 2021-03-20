@@ -1,7 +1,6 @@
 from torch.utils.data import Dataset, DataLoader
 from pytorch_lightning import LightningDataModule
 import torch
-import torch.nn.functional as F
 import os
 from pathlib import Path
 from tqdm import tqdm
@@ -9,16 +8,33 @@ import shutil
 import zipfile
 import h5py
 import nrrd
+import logging
+from torchvision.transforms import ToTensor
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s %(message)s',
+    handlers=[logging.StreamHandler()]
+)
+logger = logging.getLogger()
 
 class AsocaDataset(Dataset):
-    def __init__(self, ds_path, split='train',):
-        self.ds = h5py.File(ds_path, 'r')[split] # FIXME: might not work with multiprocessing
+    def __init__(self, ds_path, split='train', transform=None):
+        self.ds_path = ds_path
+        self.split = split
+        ds = h5py.File(ds_path, 'r')[split]
+        self.len = len(ds['volumes'])
+        del ds
+        self.transform = ToTensor() if transform is None else transform
 
     def __len__(self):
-        return len(self.ds['volumes'])
+        return self.len
 
     def __getitem__(self, index):
-        return self.ds['volumes'][index], self.ds['masks'][index]
+        self.ds = h5py.File(self.ds_path, 'r')[self.split] # FIXME: might not work with multiprocessing
+        x, y = self.ds['volumes'][index], self.ds['masks'][index]
+        x, y = self.transform(x), self.transform(y)
+        return x.unsqueeze(0), y.unsqueeze(0)
 
 
 class AsocaDataModule(LightningDataModule):
@@ -32,18 +48,19 @@ class AsocaDataModule(LightningDataModule):
         ds_path = Path(output_dir, self.ds_filename)
         if ds_path.is_file():
             with h5py.File(ds_path, 'r') as f:
-                if self.patch_size == f['patch_size']:
+                if self.patch_size == f.attrs['patch_size']:
+                    logger.info(f'Using HDF5 dataset found at: {ds_path}')
                     return
                 else:
-                    print(f'Building a HDF5 dataset with patch size: {self.patch_size}')
+                    logger.info(f'Building a HDF5 dataset with patch size: {self.patch_size}')
         else:
-            print(f'HDF5 dataset not found at {ds_path}')
+            logger.info(f'HDF5 dataset not found at {ds_path}')
 
         subdirs = ['Train', 'Train_Masks', 'Test']
 
         folders_exist = [ Path(output_dir, subdir).is_dir() for subdir in subdirs ]
         if not all(folders_exist):
-            print(f'Unzipping data from {datapath}')
+            logger.info(f'Unzipping data from {datapath}')
             for subdir in subdirs:
                 if Path(output_dir, subdir).is_dir():
                     shutil.rmtree(Path(output_dir, subdir))
@@ -51,12 +68,12 @@ class AsocaDataModule(LightningDataModule):
             with zipfile.ZipFile(datapath, 'r') as zip_ref:
                 zip_ref.extractall(output_dir)
         
-        print('Building HDF5 dataset')
+        logger.info('Building HDF5 dataset')
         volume_path = Path(output_dir, 'Train')
         mask_path = Path(output_dir, 'Train_Masks')
         self.build_hdf5_dataset(volume_path, mask_path, output_path=ds_path)
 
-        print('Done')
+        logger.info('Done')
 
     def setup(self, stage=None):
         self.datapath = 'dataset/asoca.hdf5'
@@ -101,7 +118,7 @@ class AsocaDataModule(LightningDataModule):
     
     def build_hdf5_dataset(self, volume_path, mask_path, output_path='asoca.hdf5'):
         with h5py.File(output_path, 'w') as f:
-            f['patch_size'] = self.patch_size
+            f.attrs['patch_size'] = self.patch_size
                 
             volume_paths = [ Path(volume_path, filename) for filename in os.listdir(volume_path) ]
             mask_paths = [ Path(mask_path, filename) for filename in os.listdir(mask_path) ]
@@ -116,11 +133,11 @@ class AsocaDataModule(LightningDataModule):
             N_valid = self.get_num_patches(volume_paths_valid)
             
             train_group = f.create_group('train')
-            print('Building train dataset')
+            logger.info('Building train dataset')
             self.populate_dataset(volume_paths_train, train_group, 'volumes', N_train)                    
             self.populate_dataset(mask_paths_train, train_group, 'masks', N_train)
             
-            print('Building valid dataset')
+            logger.info('Building valid dataset')
             valid_group = f.create_group('valid')
             self.populate_dataset(volume_paths_valid, valid_group, 'volumes', N_valid)                    
             self.populate_dataset(mask_paths_valid, valid_group, 'masks', N_valid)
@@ -133,5 +150,5 @@ if __name__ == '__main__':
     asoca_dm.setup()
     train_dl = asoca_dm.train_dataloader()
     valid_dl = asoca_dm.val_dataloader()
-    print(next(iter(train_dl))[0].shape)
-    print(next(iter(valid_dl))[0].shape)
+    logger.info(next(iter(train_dl))[0].shape)
+    logger.info(next(iter(valid_dl))[0].shape)
