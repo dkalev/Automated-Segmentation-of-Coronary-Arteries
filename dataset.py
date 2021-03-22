@@ -39,59 +39,63 @@ class AsocaDataset(Dataset):
 
 
 class AsocaDataModule(LightningDataModule):
-    def __init__(self, *args, batch_size=1, patch_size=32, **kwargs):
+    def __init__(self, *args,
+                batch_size=1,
+                patch_size=32,
+                normalize=True,
+                sourcepath='dataset/ASOCA2020Data.zip',
+                output_dir='dataset', **kwargs):
         super().__init__(*args, **kwargs)
         self.batch_size = batch_size
         self.patch_size = patch_size
-        self.ds_filename = 'asoca.hdf5'
+        self.normalize = normalize
+        self.sourcepath = sourcepath
+        self.output_dir = output_dir
+        self.datapath = Path(output_dir, f'asoca-{patch_size}.hdf5')
 
-    def prepare_data(self, datapath='dataset/ASOCA2020Data.zip', output_dir='dataset'):
-        ds_path = Path(output_dir, self.ds_filename)
-        if ds_path.is_file():
-            with h5py.File(ds_path, 'r') as f:
+    def prepare_data(self):
+        if self.datapath.is_file():
+            with h5py.File(self.datapath, 'r') as f:
                 if self.patch_size == f.attrs['patch_size']:
                     if not all( key in f.keys() for key in ['train', 'valid']):
                         logger.info(f'Fould corrupted HDF5 dataset. Building from scratch.')
-                        os.remove(ds_path)
+                        os.remove(self.datapath)
                     else:
-                        logger.info(f'Using HDF5 dataset found at: {ds_path}')
+                        logger.info(f'Using HDF5 dataset found at: {self.datapath}')
                         return
                 else:
                     logger.info(f'Building a HDF5 dataset with patch size: {self.patch_size}')
         else:
-            logger.info(f'HDF5 dataset not found at {ds_path}')
+            logger.info(f'HDF5 dataset not found at {self.datapath}')
 
         subdirs = ['Train', 'Train_Masks', 'Test']
 
-        folders_exist = [ Path(output_dir, subdir).is_dir() for subdir in subdirs ]
+        folders_exist = [ Path(self.output_dir, subdir).is_dir() for subdir in subdirs ]
         if not all(folders_exist):
-            logger.info(f'Unzipping data from {datapath}')
+            logger.info(f'Unzipping data from {self.sourcepath}')
             for subdir in subdirs:
-                if Path(output_dir, subdir).is_dir():
-                    shutil.rmtree(Path(output_dir, subdir))
+                if Path(self.output_dir, subdir).is_dir():
+                    shutil.rmtree(Path(self.output_dir, subdir))
 
-            with zipfile.ZipFile(datapath, 'r') as zip_ref:
-                zip_ref.extractall(output_dir)
+            with zipfile.ZipFile(self.sourcepath, 'r') as zip_ref:
+                zip_ref.extractall(self.output_dir)
         
         logger.info('Building HDF5 dataset')
-        volume_path = Path(output_dir, 'Train')
-        mask_path = Path(output_dir, 'Train_Masks')
-        self.build_hdf5_dataset(volume_path, mask_path, output_path=ds_path)
+        volume_path = Path(self.output_dir, 'Train')
+        mask_path = Path(self.output_dir, 'Train_Masks')
+        self.build_hdf5_dataset(volume_path, mask_path, output_path=self.datapath)
 
         logger.info('Done')
-
-    def setup(self, stage=None):
-        self.datapath = 'dataset/asoca.hdf5'
 
     def train_dataloader(self, batch_size=None):
         if batch_size is None: batch_size = self.batch_size
         train_split = AsocaDataset(self.datapath, split='train')
-        return DataLoader(train_split, shuffle=True, batch_size=batch_size, num_workers=12)
+        return DataLoader(train_split, shuffle=True, batch_size=batch_size, num_workers=12, pin_memory=True)
 
     def val_dataloader(self, batch_size=None):
         if batch_size is None: batch_size = self.batch_size
         valid_split = AsocaDataset(self.datapath, split='valid')
-        return DataLoader(valid_split, batch_size=batch_size, num_workers=12)
+        return DataLoader(valid_split, batch_size=batch_size, num_workers=12, pin_memory=True)
 
     def get_num_patches(self, filepaths):
         total = 0
@@ -110,6 +114,14 @@ class AsocaDataModule(LightningDataModule):
         is_used = (volume.sum(axis=[1,2,3]) > 0).numpy() if ds_name == 'masks' else None
         return volume.numpy(), is_used 
 
+    @staticmethod
+    def normalize_ds(ds):
+        # TODO check if computing stats globally works better
+        # as in https://www.kaggle.com/akh64bit/full-preprocessing-tutorial
+        mean = ds[:].mean(axis=0)
+        std  = ds[:].std(axis=0)
+        return (ds[:] - mean) / std
+    
     def populate_dataset(self, data_paths, hdf_group, num_patches):
         max_ds_size = (num_patches, self.patch_size, self.patch_size, self.patch_size)
         t_volume_ds = hdf_group.create_dataset('volumes_temp', max_ds_size)
@@ -136,7 +148,10 @@ class AsocaDataModule(LightningDataModule):
         mask_ds[:] = t_mask_ds[:last]
         del t_volume_ds
         del t_mask_ds
-    
+
+        if self.normalize:
+            volume_ds[:] = self.normalize_ds(volume_ds)
+
     def build_hdf5_dataset(self, volume_path, mask_path, output_path='asoca.hdf5'):
         with h5py.File(output_path, 'w') as f:
             f.attrs['patch_size'] = self.patch_size
@@ -152,11 +167,11 @@ class AsocaDataModule(LightningDataModule):
             
             logger.info('Building train dataset')
             train_group = f.create_group('train')
-            self.populate_dataset(train_paths, train_group, N_train_max)                    
+            self.populate_dataset(train_paths, train_group, N_train_max)
             
             logger.info('Building valid dataset')
             valid_group = f.create_group('valid')
-            self.populate_dataset(valid_paths, valid_group, N_valid_max)                    
+            self.populate_dataset(valid_paths, valid_group, N_valid_max)
         
 
 if __name__ == '__main__':
