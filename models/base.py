@@ -29,9 +29,9 @@ class Base(pl.LightningModule):
     
     def log_metrics(self, preds, targs, loss, split='train'):
         preds = torch.sigmoid(preds)
-        self.log(f'{split}_loss', loss)
-        self.log(f'{split}_acc', self.accuracy(preds, targs))
-        self.log(f'{split}_f1', self.f1(preds, targs))
+        self.log(f'{split}_loss', loss.item())
+        self.log(f'{split}_acc', self.accuracy(preds, targs).item())
+        self.log(f'{split}_f1', self.f1(preds, targs).item())
         if split == 'valid':
             targs_numpy = targs.cpu().flatten().numpy().astype(int)
             preds_numpy = preds.cpu().flatten()
