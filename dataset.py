@@ -42,29 +42,39 @@ class AsocaDataModule(LightningDataModule):
     def __init__(self, *args,
                 batch_size=1,
                 patch_size=32,
+                stride=None,
                 normalize=True,
                 sourcepath='dataset/ASOCA2020Data.zip',
                 output_dir='dataset', **kwargs):
         super().__init__(*args, **kwargs)
         self.batch_size = batch_size
         self.patch_size = patch_size
+        self.stride = patch_size if stride is None else stride
         self.normalize = normalize
         self.sourcepath = sourcepath
         self.output_dir = output_dir
         self.datapath = Path(output_dir, f'asoca-{patch_size}.hdf5')
 
+    def is_valid(self, f):
+        if 'patch_size' not in f.attrs: return False
+        if 'stride' not in f.attrs: return False
+        if not all( key in f.keys() for key in ['train', 'valid']): return False
+        if not all( key in f['train'].keys() for key in ['volumes', 'masks']): return False
+        if not all( key in f['valid'].keys() for key in ['volumes', 'masks']): return False
+        return True
+
+
     def prepare_data(self):
         if self.datapath.is_file():
             with h5py.File(self.datapath, 'r') as f:
-                if self.patch_size == f.attrs['patch_size']:
-                    if not all( key in f.keys() for key in ['train', 'valid']):
-                        logger.info(f'Fould corrupted HDF5 dataset. Building from scratch.')
-                        os.remove(self.datapath)
-                    else:
-                        logger.info(f'Using HDF5 dataset found at: {self.datapath}')
-                        return
+                if not self.is_valid(f):
+                    logger.info(f'Fould corrupted HDF5 dataset. Building from scratch.')
+                    os.remove(self.datapath)
+                elif self.patch_size == f.attrs['patch_size'] and self.stride == f.attrs['stride']:
+                    logger.info(f'Using HDF5 dataset found at: {self.datapath}')
+                    return
                 else:
-                    logger.info(f'Building a HDF5 dataset with patch size: {self.patch_size}')
+                    logger.info(f'Building a HDF5 dataset with patch size: {self.patch_size}, stride: {self.stride}')
         else:
             logger.info(f'HDF5 dataset not found at {self.datapath}')
 
@@ -97,7 +107,9 @@ class AsocaDataModule(LightningDataModule):
         valid_split = AsocaDataset(self.datapath, split='valid')
         return DataLoader(valid_split, batch_size=batch_size, num_workers=12, pin_memory=True)
 
-    def get_num_patches(self, filepaths):
+    def get_max_n_patches(self, filepaths):
+        # FIXME currently doesn't take into account the stride
+        # still big enough as many patches don't contain arteries and are discarded
         total = 0
         for filepath in filepaths:
             volume_shape = nrrd.read_header(str(filepath))['sizes']
@@ -107,9 +119,9 @@ class AsocaDataModule(LightningDataModule):
 
     def get_patches(self, volume, ds_name='volumes'):
         volume = torch.from_numpy(volume)
-        volume = volume.unfold(0, self.patch_size, self.patch_size) \
-                    .unfold(1, self.patch_size, self.patch_size) \
-                    .unfold(2, self.patch_size, self.patch_size) \
+        volume = volume.unfold(0, self.patch_size, self.stride) \
+                    .unfold(1, self.patch_size, self.stride) \
+                    .unfold(2, self.patch_size, self.stride) \
                     .reshape(-1, self.patch_size, self.patch_size, self.patch_size)
         is_used = (volume.sum(axis=[1,2,3]) > 0).numpy() if ds_name == 'masks' else None
         return volume.numpy(), is_used 
@@ -130,12 +142,12 @@ class AsocaDataModule(LightningDataModule):
         last = 0 
         for volume_path, mask_path in tqdm(list(data_paths)):
             mask, _ = nrrd.read(mask_path, index_order='C')
-            mask_patches, is_used = self.get_patches(mask, 'masks')
+            mask_patches, is_used = self.get_patches(mask, ds_name='masks')
             mask_patches = mask_patches[is_used]
             t_mask_ds[last:last+len(mask_patches),...] = mask_patches
 
             volume, _ = nrrd.read(volume_path, index_order='C')
-            volume_patches, _ = self.get_patches(volume, 'volumes')
+            volume_patches, _ = self.get_patches(volume, ds_name='volumes')
             volume_patches = volume_patches[is_used]
             t_volume_ds[last:last+len(volume_patches),...] = volume_patches
 
@@ -155,6 +167,7 @@ class AsocaDataModule(LightningDataModule):
     def build_hdf5_dataset(self, volume_path, mask_path, output_path='asoca.hdf5'):
         with h5py.File(output_path, 'w') as f:
             f.attrs['patch_size'] = self.patch_size
+            f.attrs['stride'] = self.stride
                 
             volume_paths = [ Path(volume_path, filename) for filename in os.listdir(volume_path) ]
             mask_paths = [ Path(mask_path, filename) for filename in os.listdir(mask_path) ]
@@ -162,8 +175,8 @@ class AsocaDataModule(LightningDataModule):
             train_paths = zip(volume_paths[:30], mask_paths[:30])
             valid_paths = zip(volume_paths[30:], mask_paths[30:])
             
-            N_train_max = self.get_num_patches(volume_paths[:30])
-            N_valid_max = self.get_num_patches(volume_paths[30:])
+            N_train_max = self.get_max_n_patches(volume_paths[:30])
+            N_valid_max = self.get_max_n_patches(volume_paths[30:])
             
             logger.info('Building train dataset')
             train_group = f.create_group('train')
@@ -176,7 +189,7 @@ class AsocaDataModule(LightningDataModule):
 
 if __name__ == '__main__':
 
-    asoca_dm = AsocaDataModule(batch_size=16, patch_size=64)
+    asoca_dm = AsocaDataModule(batch_size=16, patch_size=32, stride=28)
     asoca_dm.prepare_data()
     asoca_dm.setup()
     train_dl = asoca_dm.train_dataloader()
