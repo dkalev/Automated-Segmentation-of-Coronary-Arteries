@@ -8,6 +8,7 @@ import argparse
 
 import warnings
 warnings.filterwarnings('ignore', 'Setting attributes on ParameterDict is not supported')
+warnings.filterwarnings('ignore', 'training_step returned None')
 
 def get_logger(hparams):
     # disable logging in debug mode
@@ -35,18 +36,20 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', type=int, default=4)
     parser.add_argument('--patch_size', type=int, default=32)
     parser.add_argument('--patch_stride', type=int, default=28)
+    parser.add_argument('--loss_type', type=str, default='dice', choices=['dice', 'bce', 'dicebce'])
     hparams = vars(parser.parse_args())
 
     asoca_dm = AsocaDataModule(batch_size=hparams['batch_size'],
                                patch_size=hparams['patch_size'],
                                stride=hparams['patch_stride'])
 
+    kwargs = { 'loss_type': hparams['loss_type'] }
     if hparams['model'] == 'cnn':
-        model = Baseline3DCNN()
+        model = Baseline3DCNN(**kwargs)
     elif hparams['model'] == 'unet':
-        model = UNet()
+        model = UNet(**kwargs)
     elif hparams['model'] == 'e3nn_cnn':
-        model = e3nnCNN()
+        model = e3nnCNN(**kwargs)
 
     trainer_kwargs = {
         'gpus': hparams['gpus'],
