@@ -2,7 +2,7 @@
 #SBATCH --job-name="ASOCA"
 #SBATCH --nodes=1 # Number of nodes
 #SBATCH --time=04:00:00 # excepted wall clock time
-#SBATCH --partition=gpu_shared # specify partition
+#SBATCH --partition=gpu # specify partition
 #SBATCH --gpus=4
 #SBATCH --signal=SIGUSR1@90 #enables pl to save a checkpoint if the job is to be terminated
 #SBATCH --output=out/%x.%j.out
@@ -18,8 +18,8 @@ cp -r $HOME/Automated-Segmentation-of-Coronary-Arteries "$TMPDIR" # copy data to
 cd "$TMPDIR"/Automated-Segmentation-of-Coronary-Arteries
 
 echo "Load dataset"
-python model.py
+python train.py --model=$1
 
-cp -r lightning_logs/* $HOME/Automated-Segmentation-of-Coronary-Arteries/lightning_logs
+cp -r logs/* $HOME/Automated-Segmentation-of-Coronary-Arteries/logs
 
 echo DONE
