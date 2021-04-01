@@ -28,7 +28,8 @@ class Base(pl.LightningModule):
 
     @staticmethod
     def mask_targs(targs):
-        return targs, torch.ones(targs.shape[0])
+        mask = torch.ones(targs.shape[0]).type(torch.bool)
+        return targs, mask
     
     def prepare_batch(self, batch):
         # crops targets to match the padding lost in the convolutions
