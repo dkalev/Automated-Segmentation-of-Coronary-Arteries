@@ -1,11 +1,13 @@
 import torch
 import torch.nn as nn
+from metrics import dice_score
+
+
 
 class DiceLoss(nn.Module):
 
     def __init__(self, normalize=True):
         super().__init__()
-        self.smooth = 1.0
         self.normalize = normalize
 
     def forward(self, pred, targ):
@@ -13,9 +15,7 @@ class DiceLoss(nn.Module):
         if self.normalize: 
             pred = torch.sigmoid(pred)
 
-        intersection = (pred * targ).sum()
-        dice_score = (2. * intersection + self.smooth) / ( pred.sum() + targ.sum() + self.smooth )
-        return 1. - dice_score
+        return 1. - dice_score(pred, targ)
 
 class DiceBCELoss(nn.Module):
     def __init__(self, weighted_bce=True):

@@ -5,12 +5,12 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 from sklearn.metrics import roc_auc_score
 import pytorch_lightning as pl
 from loss import DiceBCELoss, DiceLoss
+from metrics import dice_score
 
 class Base(pl.LightningModule):
     def __init__(self, *args, lr=1e-3, loss_type='dice', **kwargs):
         super().__init__(*args, **kwargs)
         self.crit = self.get_loss_func(loss_type)
-        self.accuracy = pl.metrics.Accuracy()
         self.f1 = pl.metrics.F1()
         self.lr = lr
     
@@ -59,9 +59,9 @@ class Base(pl.LightningModule):
     def log_metrics(self, preds, targs, loss, split='train'):
         preds = torch.sigmoid(preds)
         self.log(f'{split}_loss', loss.item())
-        self.log(f'{split}_acc', self.accuracy(preds, targs).item())
         self.log(f'{split}_f1', self.f1(preds, targs).item())
         if split == 'valid':
+            self.log(f'valid_dice', dice_score(targs, preds))
             targs_numpy = targs.cpu().flatten().numpy().astype(int)
             preds_numpy = preds.cpu().flatten()
             self.log(f'valid_auc', roc_auc_score(targs_numpy, preds_numpy))
