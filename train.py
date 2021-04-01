@@ -5,6 +5,7 @@ from models.base import Baseline3DCNN
 from models.unet import UNet
 from models.e3nn_models import e3nnCNN
 import argparse
+import time
 
 import warnings
 warnings.filterwarnings('ignore', 'Setting attributes on ParameterDict is not supported')
@@ -14,7 +15,7 @@ def get_logger(hparams):
     # disable logging in debug mode
     if hparams['debug']: return False
 
-    logger = TensorBoardLogger('logs', default_hp_metric=False)
+    logger = TensorBoardLogger('logs', name=f"{hparams['model']}-{int(time.time())}", default_hp_metric=False)
     # log hparams to tensorboard
     logger.log_hyperparams(hparams, {
         'train_acc': 0,
@@ -36,7 +37,7 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', type=int, default=4)
     parser.add_argument('--patch_size', type=int, default=32)
     parser.add_argument('--patch_stride', type=int, default=28)
-    parser.add_argument('--loss_type', type=str, default='dice', choices=['dice', 'bce', 'dicebce'])
+    parser.add_argument('--loss_type', type=str, default='dicebce', choices=['dice', 'bce', 'dicebce'])
     hparams = vars(parser.parse_args())
 
     asoca_dm = AsocaDataModule(batch_size=hparams['batch_size'],
