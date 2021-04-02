@@ -18,10 +18,9 @@ def get_logger(hparams):
     logger = TensorBoardLogger('logs', name=f"{hparams['model']}-{int(time.time())}", default_hp_metric=False)
     # log hparams to tensorboard
     logger.log_hyperparams(hparams, {
-        'train_acc': 0,
         'train_f1': 0,
         'train_loss': float('inf'),
-        'valid_acc': 0,
+        'valid_dice': 0,
         'valid_f1': 0,
         'valid_loss': float('inf'),
     })
