@@ -66,15 +66,19 @@ class AsocaDataModule(LightningDataModule):
 
     def prepare_data(self):
         if self.datapath.is_file():
-            with h5py.File(self.datapath, 'r') as f:
-                if not self.is_valid(f):
-                    logger.info(f'Fould corrupted HDF5 dataset. Building from scratch.')
-                    os.remove(self.datapath)
-                elif self.patch_size == f.attrs['patch_size'] and self.stride == f.attrs['stride']:
-                    logger.info(f'Using HDF5 dataset found at: {self.datapath}')
-                    return
-                else:
-                    logger.info(f'Building a HDF5 dataset with patch size: {self.patch_size}, stride: {self.stride}')
+            try:
+                with h5py.File(self.datapath, 'r') as f:
+                    if not self.is_valid(f):
+                        logger.info(f'Fould corrupted HDF5 dataset. Building from scratch.')
+                        os.remove(self.datapath)
+                    elif self.patch_size == f.attrs['patch_size'] and self.stride == f.attrs['stride']:
+                        logger.info(f'Using HDF5 dataset found at: {self.datapath}')
+                        return
+                    else:
+                        logger.info(f'Building a HDF5 dataset with patch size: {self.patch_size}, stride: {self.stride}')
+            except Exception:
+                logger.info(f'Fould corrupted HDF5 dataset. Building from scratch.')
+                os.remove(self.datapath)
         else:
             logger.info(f'HDF5 dataset not found at {self.datapath}')
 
