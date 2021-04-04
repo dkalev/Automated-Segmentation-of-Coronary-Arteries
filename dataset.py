@@ -10,7 +10,6 @@ import zipfile
 import h5py
 import nrrd
 import logging
-from torchvision.transforms import ToTensor
 
 logging.basicConfig(
     level=logging.INFO,
@@ -20,13 +19,12 @@ logging.basicConfig(
 logger = logging.getLogger()
 
 class AsocaDataset(Dataset):
-    def __init__(self, ds_path, split='train', transform=None):
+    def __init__(self, ds_path, split='train'):
         self.ds_path = ds_path
         self.split = split
         ds = h5py.File(ds_path, 'r')[split]
         self.len = len(ds['volumes'])
         del ds
-        self.transform = ToTensor() if transform is None else transform
 
     def __len__(self):
         return self.len
@@ -34,8 +32,10 @@ class AsocaDataset(Dataset):
     def __getitem__(self, index):
         self.ds = h5py.File(self.ds_path, 'r')[self.split]
         x, y = self.ds['volumes'][index], self.ds['masks'][index]
-        x, y = self.transform(x), self.transform(y)
-        return x.unsqueeze(0), y.unsqueeze(0)
+        x, y = torch.tensor(x), torch.tensor(y)
+        if len(x.shape) == 3:
+            x, y = x.unsqueeze(0), y.unsqueeze(0)
+        return x, y
 
 
 class AsocaDataModule(LightningDataModule):
