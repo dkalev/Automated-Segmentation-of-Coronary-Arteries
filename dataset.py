@@ -43,7 +43,7 @@ class AsocaDataModule(LightningDataModule):
                 batch_size=1,
                 patch_size=32,
                 stride=None,
-                normalize=True,
+                normalize=False,
                 sourcepath='dataset/ASOCA2020Data.zip',
                 output_dir='dataset', **kwargs):
         super().__init__(*args, **kwargs)
