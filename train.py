@@ -33,9 +33,11 @@ if __name__ == '__main__':
     parser.add_argument('--debug', type=bool, default=False, choices=[True, False])
     parser.add_argument('--gpus', type=int, default=1)
     parser.add_argument('--n_epochs', type=int, default=100)
-    parser.add_argument('--batch_size', type=int, default=4)
+    parser.add_argument('--batch_size', type=int, default=16)
     parser.add_argument('--patch_size', type=int, default=32)
     parser.add_argument('--patch_stride', type=int, default=28)
+    parser.add_argument('--lr', type=float, default=1e-3)
+    parser.add_argument('--auto_lr_find', type=bool, default=False)
     parser.add_argument('--loss_type', type=str, default='dicebce', choices=['dice', 'bce', 'dicebce'])
     hparams = vars(parser.parse_args())
 
@@ -58,8 +60,12 @@ if __name__ == '__main__':
         # disable logging in debug mode
         'checkpoint_callback': not hparams['debug'],
         'logger': get_logger(hparams),
+        'auto_lr_find': hparams['auto_lr_find'],
     }
 
     
     trainer = pl.Trainer(**trainer_kwargs)
+
+    if hparams['auto_lr_find']: trainer.tune(model, asoca_dm)
+
     trainer.fit(model, asoca_dm)
