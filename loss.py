@@ -3,7 +3,6 @@ import torch.nn as nn
 from metrics import dice_score
 
 
-
 class DiceLoss(nn.Module):
 
     def __init__(self, normalize=True):

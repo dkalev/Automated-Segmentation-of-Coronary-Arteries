@@ -73,11 +73,13 @@ class Base(pl.LightningModule):
             'scheduler': ReduceLROnPlateau(optimizer, 'min', patience=5),
             'monitor': 'valid_loss'
         }
+
 class Baseline3DCNN(Base):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, kernel_size=3, **kwargs):
         super().__init__(*args, **kwargs)
+
         common_params = {
-            'kernel_size': 3,
+            'kernel_size': kernel_size,
             'bias': False,
         }
 
@@ -87,6 +89,7 @@ class Baseline3DCNN(Base):
             {'in_channels':16, 'out_channels': 32 },
             {'in_channels':32, 'out_channels': 4 },
         ]
+
         blocks = [
             nn.Sequential(
                 nn.Conv3d(**b_params, **common_params),
@@ -96,7 +99,7 @@ class Baseline3DCNN(Base):
         ]
 
         blocks.append(
-            nn.Conv3d(4, 1, kernel_size=common_params['kernel_size'])
+            nn.Conv3d(block_params[-1]['out_channels'], 1, kernel_size=common_params['kernel_size'])
         )
 
         self.crop = (common_params['kernel_size']//2) * len(blocks)
