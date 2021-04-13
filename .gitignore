@@ -133,3 +133,4 @@ dataset/
 .vscode/*
 *logs*/**/*
 out/**/*
+ray_tune/**/*
