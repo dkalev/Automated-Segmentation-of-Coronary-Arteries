@@ -39,13 +39,15 @@ if __name__ == '__main__':
     parser.add_argument('--lr', type=float, default=1e-3)
     parser.add_argument('--auto_lr_find', type=bool, default=False)
     parser.add_argument('--loss_type', type=str, default='dicebce', choices=['dice', 'bce', 'dicebce'])
+    parser.add_argument('--skip_empty_patches', type=bool, default=False)
+    parser.add_argument('--kernel_size', type=int, default=3)
     hparams = vars(parser.parse_args())
 
     asoca_dm = AsocaDataModule(batch_size=hparams['batch_size'],
                                patch_size=hparams['patch_size'],
                                stride=hparams['patch_stride'])
 
-    kwargs = { 'loss_type': hparams['loss_type'] }
+    kwargs = { param: hparams[param] for param in ['loss_type', 'lr', 'kernel_size', 'skip_empty_patches'] }
     if hparams['model'] == 'cnn':
         model = Baseline3DCNN(**kwargs)
     elif hparams['model'] == 'unet':
