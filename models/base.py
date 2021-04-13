@@ -8,11 +8,12 @@ from loss import DiceBCELoss, DiceLoss
 from metrics import dice_score
 
 class Base(pl.LightningModule):
-    def __init__(self, *args, lr=1e-3, loss_type='dice', **kwargs):
+    def __init__(self, *args, lr=1e-3, loss_type='dice', skip_empty_patches=False, **kwargs):
         super().__init__(*args, **kwargs)
         self.crit = self.get_loss_func(loss_type)
         self.f1 = pl.metrics.F1()
         self.lr = lr
+        self.skip_empty_patches = skip_empty_patches
     
     @staticmethod
     def get_loss_func(name):
@@ -25,18 +26,25 @@ class Base(pl.LightningModule):
         else:
             raise ValueError(f'Unknown loss type: {name}')
 
+    def crop_targs(self, targs):
+        targs = targs[..., # [batch_size, n_channels]
+                     self.crop:-self.crop, # x
+                     self.crop:-self.crop, # y
+                     self.crop:-self.crop] # z
 
+        return targs
+    
     @staticmethod
-    def mask_targs(targs):
-        mask = torch.ones(targs.shape[0]).type(torch.bool)
-        return targs, mask
+    def get_empty_patch_mask(targs):
+        return targs.sum(dim=[1,2,3,4]) > 0
     
     def prepare_batch(self, batch):
         # crops targets to match the padding lost in the convolutions
-        # removes datapoints with no positive samples (after cropping) from batch
         x, targs = batch
-        targs, mask = self.mask_targs(targs)
-        x = x[mask,...]
+        targs = self.crop_targs(targs)
+        if self.skip_empty_patches:
+            mask = self.get_empty_patch_mask(targs)
+            x, targs = x[mask], targs[mask]
         return x, targs
 
     def training_step(self, batch, batch_idx):
@@ -75,7 +83,7 @@ class Base(pl.LightningModule):
         }
 
 class Baseline3DCNN(Base):
-    def __init__(self, *args, kernel_size=3, **kwargs):
+    def __init__(self, *args, kernel_size=5, **kwargs):
         super().__init__(*args, **kwargs)
 
         common_params = {
@@ -108,12 +116,3 @@ class Baseline3DCNN(Base):
     
     def forward(self, x):
         return self.model(x)
-
-    def mask_targs(self, targs):
-        targs = targs[..., # [batch_size, n_channels]
-                     self.crop:-self.crop, # x
-                     self.crop:-self.crop, # y
-                     self.crop:-self.crop] # z
-
-        mask = targs.sum(dim=[1,2,3,4]) > 0
-        return targs[mask,...], mask
