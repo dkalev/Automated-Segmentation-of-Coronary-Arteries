@@ -7,7 +7,7 @@ from ray.tune import CLIReporter
 from ray.tune.schedulers import ASHAScheduler
 from ray.tune.integration.pytorch_lightning import TuneReportCallback
 from pathlib import Path
-from dataset import AsocaDataModule
+from data_utils import AsocaDataModule
 from models.base import Baseline3DCNN
 import time
 import pickle as pkl
