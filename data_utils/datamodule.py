@@ -7,6 +7,7 @@ import torch
 import shutil
 import zipfile
 import logging
+import traceback
 import numpy as np
 from tqdm import tqdm
 from pathlib import Path
@@ -142,65 +143,63 @@ class DatasetBuilder():
         
         return shapes
     
-    def resample_patches(self):
-        with h5py.File(self.datapath, 'r+') as f:
-            patch_size_prev = f.attrs['patch_size']
-            stride_prev = f.attrs['stride']
-            shapes_old = ast.literal_eval(f.attrs['vol_shapes'])
+    def resample_patches(self, f):
+        patch_size_prev = f.attrs['patch_size']
+        stride_prev = f.attrs['stride']
+        shapes_old = ast.literal_eval(f.attrs['vol_shapes'])
 
-            patch_size_new = self.patch_size
-            stride_new = self.stride
+        patch_size_new = self.patch_size
+        stride_new = self.stride
 
-            vol_meta = defaultdict(dict)
-            for split in f:
-                padding_new = { vol_id: get_patch_padding(vol_data['shape_orig'], patch_size_new, stride_new)
-                                    for vol_id, vol_data in shapes_old[split].items()
-                }
-                padded_vol_shape = (
-                    np.sum([vol_data['shape_orig'][0] + np.sum(padding_new[vol_id][-2:]) for vol_id, vol_data in shapes_old[split].items()]), 
-                    512, 512)
-                # estimate size of new dataset (n_patches x psize x psize x psize)
-                n_patches = get_n_patches(padded_vol_shape, patch_size_new, stride_new)
-                ds_size = (n_patches, patch_size_new, patch_size_new, patch_size_new)
-                for partition in f[split]:
-                    f.create_dataset('temp', ds_size)
-                    cur_old = 0
-                    cur_new = 0
-                    for vol_hash, vol_prev_meta in tqdm(shapes_old[split].items()):
-                        batch = f[split][partition][cur_old: cur_old+vol_prev_meta['n_patches']]
-                        batch = torch.from_numpy(batch)
-                        batch = batch.view(vol_prev_meta['shape_patched'])
-
-                        vol = patches2vol(batch, patch_size_prev, stride_prev, vol_prev_meta['padding'])
-                        padding_new = get_patch_padding(vol.shape, patch_size_new, stride_new)
-                        pad_value = -1000 if partition == 'volume' else 0
-
-                        patches, patched_shape_new = vol2patches(vol, patch_size_new, stride_new, padding_new, pad_value=pad_value)
-                        n_patches_new = patches.shape[0]
-
-                        f['temp'][cur_new: cur_new+n_patches_new] = patches
-
-                        vol_meta[split][vol_hash] = {
-                            'shape_orig': vol_prev_meta['shape_orig'],
-                            'shape_patched': patched_shape_new,
-                            'start_idx': cur_new,
-                            'n_patches': n_patches_new,
-                            'padding': padding_new
-                        }
-
-                        cur_old += vol_prev_meta['n_patches']
-                        cur_new += n_patches_new
+        vol_meta = defaultdict(dict)
+        for split in f:
+            padding_new = { vol_id: get_patch_padding(vol_data['shape_orig'], patch_size_new, stride_new)
+                                for vol_id, vol_data in shapes_old[split].items()
+            }
+            padded_vol_shape = (
+                np.sum([vol_data['shape_orig'][0] + np.sum(padding_new[vol_id][-2:]) for vol_id, vol_data in shapes_old[split].items()]), 
+                512, 512)
+            # estimate size of new dataset (n_patches x psize x psize x psize)
+            n_patches = get_n_patches(padded_vol_shape, patch_size_new, stride_new)
+            ds_size = (n_patches, patch_size_new, patch_size_new, patch_size_new)
+            for partition in f[split]:
+                f.create_dataset('temp', ds_size)
+                cur_old = 0
+                cur_new = 0
+                for vol_id, vol_prev_meta in tqdm(shapes_old[split].items()):
+                    batch = f[split][partition][cur_old: cur_old+vol_prev_meta['n_patches']]
+                    batch = torch.from_numpy(batch)
+                    batch = batch.view(vol_prev_meta['shape_patched'])
                     
-                    del f[split][partition]
-                    f[split][partition] = f['temp']
-                    del f['temp']
+                    vol = patches2vol(batch, patch_size_prev, stride_prev, vol_prev_meta['padding'])
+                    pad_value = -1000 if partition == 'volume' else 0 # FIXME pad value cannot be -1000 after normalization
 
-                    f.attrs['vol_shapes'] = str(vol_meta)
+                    patches, patched_shape_new = vol2patches(vol, patch_size_new, stride_new, padding_new[vol_id], pad_value=pad_value)
+                    n_patches_new = patches.shape[0]
 
-            # update ds attributes
-            f.attrs['patch_size'] = patch_size_new
-            f.attrs['stride'] = stride_new
+                    f['temp'][cur_new: cur_new+n_patches_new] = patches
 
+                    vol_meta[split][vol_id] = {
+                        'shape_orig': vol_prev_meta['shape_orig'],
+                        'shape_patched': patched_shape_new,
+                        'start_idx': cur_new,
+                        'n_patches': n_patches_new,
+                        'padding': padding_new[vol_id]
+                    }
+
+                    cur_old += vol_prev_meta['n_patches']
+                    cur_new += n_patches_new
+                
+                del f[split][partition]
+                f[split][partition] = f['temp']
+                del f['temp']
+
+                f.attrs['vol_shapes'] = str(dict(vol_meta))
+
+                # update ds attributes
+                f.attrs['patch_size'] = patch_size_new
+                f.attrs['stride'] = stride_new
+        
     def build_hdf5_dataset(self, volume_path, mask_path, output_path='asoca.hdf5'):
         with h5py.File(output_path, 'w') as f:
             f.attrs['patch_size'] = self.patch_size
@@ -247,7 +246,12 @@ class AsocaDataModule(LightningDataModule, DatasetBuilder):
         action = self.verify_dataset()
 
         if action == 'resample':
-            self.resample_patches()
+            with h5py.File(self.datapath, 'r+') as f:
+                try:
+                    self.resample_patches(f)
+                except Exception:
+                    if 'temp' in f: del f['temp']
+                    logger.error(traceback.format_exc())
         elif action == 'build':
             subdirs = ['Train', 'Train_Masks', 'Test']
             folders_exist = [ Path(self.output_dir, subdir).is_dir() for subdir in subdirs ]
