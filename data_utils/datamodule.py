@@ -83,16 +83,28 @@ class DatasetBuilder():
         return total
 
     @staticmethod
-    def normalize_ds(ds, global_stats=True):
+    def normalize_ds(ds, batch_size=1000, global_stats=True):
         # TODO check if computing stats globally works better
         # as in https://www.kaggle.com/akh64bit/full-preprocessing-tutorial
-        if global_stats:
-            mean = ds[:].mean()
-            std  = ds[:].std()
-        else:
-            mean = ds[:].mean(axis=0)
-            std  = ds[:].std(axis=0)
-        return (ds[:] - mean) / std
+        axis = None if global_stats else 0
+        mean = 0
+        std = 0
+        logger.info('Computing dataset mean and std.')
+        for cur in tqdm(range(0, len(ds), batch_size)):
+            m = cur * batch_size
+            n = batch_size
+            batch_mean = ds[cur:cur+batch_size].mean(axis=axis)
+            batch_std  = ds[cur:cur+batch_size].std(axis=axis)
+            
+            # the std requires the previous mean, so compute before updating mean variable
+            std  = m / (m+n) * std**2 + n / (m+n) * batch_std**2 +\
+                        m*n / (m+n)**2 * (mean - batch_mean)**2
+            std = np.sqrt(std)
+            mean = m / (m+n) * mean + n / (m+n) * batch_mean
+
+        logger.info('Normalizing dataset')
+        for cur in tqdm(range(0, len(ds), batch_size)):
+            ds[cur: cur+batch_size] = (ds[cur: cur+batch_size] - mean) / std
     
     def populate_dataset(self, f, data_paths, hdf_group, num_patches):
         ds_size = (num_patches, self.patch_size, self.patch_size, self.patch_size)
@@ -126,7 +138,7 @@ class DatasetBuilder():
             cur_start = cur_end
 
         if self.normalize:
-            volume_ds[:] = self.normalize_ds(volume_ds)
+            self.normalize_ds(volume_ds)
         
         return shapes
     
@@ -151,7 +163,6 @@ class DatasetBuilder():
                 n_patches = get_n_patches(padded_vol_shape, patch_size_new, stride_new)
                 ds_size = (n_patches, patch_size_new, patch_size_new, patch_size_new)
                 for partition in f[split]:
-                    # create a temp dataset for group
                     f.create_dataset('temp', ds_size)
                     cur_old = 0
                     cur_new = 0
@@ -220,7 +231,7 @@ class AsocaDataModule(LightningDataModule, DatasetBuilder):
                 batch_size=1,
                 patch_size=32,
                 stride=None,
-                normalize=True,
+                normalize=True, # has no effect on resample; only when building from scratch
                 sourcepath='dataset/ASOCA2020Data.zip',
                 output_dir='dataset', **kwargs):
         super().__init__(*args, **kwargs)
@@ -230,7 +241,7 @@ class AsocaDataModule(LightningDataModule, DatasetBuilder):
         self.normalize = normalize
         self.sourcepath = sourcepath
         self.output_dir = output_dir
-        self.datapath = Path(output_dir, f'asoca-{patch_size}.hdf5')
+        self.datapath = Path(output_dir, f'asoca.hdf5')
 
     def prepare_data(self):
         action = self.verify_dataset()
