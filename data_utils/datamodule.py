@@ -232,6 +232,7 @@ class AsocaDataModule(LightningDataModule, DatasetBuilder):
                 stride=None,
                 normalize=True, # has no effect on resample; only when building from scratch
                 sourcepath='dataset/ASOCA2020Data.zip',
+                datapath='dataset/asoca.hdf5',
                 output_dir='dataset', **kwargs):
         super().__init__(*args, **kwargs)
         self.batch_size = batch_size
@@ -240,7 +241,7 @@ class AsocaDataModule(LightningDataModule, DatasetBuilder):
         self.normalize = normalize
         self.sourcepath = sourcepath
         self.output_dir = output_dir
-        self.datapath = Path(output_dir, f'asoca.hdf5')
+        self.datapath = datapath
 
     def prepare_data(self):
         action = self.verify_dataset()
