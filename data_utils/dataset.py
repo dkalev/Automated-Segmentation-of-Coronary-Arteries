@@ -26,12 +26,24 @@ class AsocaDataset(Dataset):
             self.len = len(ds[split]['volumes'])
         del ds
 
+    def add_offset(self, index):
+        if isinstance(index, int):
+            index += self.start_idx
+        elif isinstance(index, slice):
+            start = index.start + self.start_idx if index.start is not None else None
+            stop = index.stop + self.start_idx if index.stop is not None else None
+            index = slice(start, stop, index.step)
+        else:
+            raise ValueError(f'Unsupported index type: {type(index)}')
+        return index
+
     def __len__(self):
         return self.len
 
     def __getitem__(self, index):
         self.ds = h5py.File(self.ds_path, 'r')[self.split]
-        x, y = self.ds['volumes'][self.start_idx+index], self.ds['masks'][self.start_idx+index]
+        index = self.add_offset(index)
+        x, y = self.ds['volumes'][index], self.ds['masks'][index]
         x, y = torch.tensor(x), torch.tensor(y)
         if len(x.shape) == 3:
             x, y = x.unsqueeze(0), y.unsqueeze(0)
