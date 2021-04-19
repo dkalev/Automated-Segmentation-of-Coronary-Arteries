@@ -29,8 +29,7 @@ logger = logging.getLogger()
 class DatasetBuilder():
     @staticmethod
     def is_valid(f):
-        if 'patch_size' not in f.attrs: return False
-        if 'stride' not in f.attrs: return False
+        if not all([attr in f.attrs for attr in ['patch_size', 'stride', 'vol_shapes']]): return False
         if not all( key in f.keys() for key in ['train', 'valid']): return False
         if not all( key in f['train'].keys() for key in ['volumes', 'masks']): return False
         if not all( key in f['valid'].keys() for key in ['volumes', 'masks']): return False
@@ -83,11 +82,8 @@ class DatasetBuilder():
             total += get_n_patches(volume_shape, self.patch_size, self.stride)
         return total
 
-    @staticmethod
-    def normalize_ds(ds, batch_size=1000, global_stats=True):
-        # TODO check if computing stats globally works better
-        # as in https://www.kaggle.com/akh64bit/full-preprocessing-tutorial
-        axis = None if global_stats else 0
+    def normalize_ds(self, ds, batch_size=1000):
+        axis = None if self.norm_type == 'global' else 0
         mean = 0
         std = 0
         logger.info('Computing dataset mean and std.')
@@ -231,6 +227,7 @@ class AsocaDataModule(LightningDataModule, DatasetBuilder):
                 patch_size=32,
                 stride=None,
                 normalize=True, # has no effect on resample; only when building from scratch
+                norm_type='global',
                 sourcepath='dataset/ASOCA2020Data.zip',
                 datapath='dataset/asoca.hdf5',
                 output_dir='dataset', **kwargs):
@@ -239,9 +236,10 @@ class AsocaDataModule(LightningDataModule, DatasetBuilder):
         self.patch_size = patch_size
         self.stride = patch_size if stride is None else stride
         self.normalize = normalize
+        self.norm_type = norm_type
         self.sourcepath = sourcepath
         self.output_dir = output_dir
-        self.datapath = datapath
+        self.datapath = Path(datapath)
 
     def prepare_data(self):
         action = self.verify_dataset()

@@ -7,6 +7,7 @@ if __name__ == '__main__':
     parser.add_argument('--patch_size', type=int, default=32)
     parser.add_argument('--stride', type=int, default=28)
     parser.add_argument('--normalize', type=bool, default=False)
+    parser.add_argument('--norm_type', type=str, default='global', choices=['global', 'patch-wise'])
     hparams = vars(parser.parse_args())
 
     asoca_dm = AsocaDataModule(**hparams)
