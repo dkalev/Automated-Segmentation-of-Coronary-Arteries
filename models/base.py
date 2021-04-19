@@ -2,10 +2,9 @@ import torch
 import torch.nn as nn
 from torch.optim import Adam
 from torch.optim.lr_scheduler import ReduceLROnPlateau
-from sklearn.metrics import roc_auc_score
 import pytorch_lightning as pl
 from loss import DiceBCELoss, DiceLoss
-from metrics import dice_score
+from metrics import dice_score, roc_auc
 
 class Base(pl.LightningModule):
     def __init__(self, *args, lr=1e-3, loss_type='dice', skip_empty_patches=False, **kwargs):
@@ -69,10 +68,8 @@ class Base(pl.LightningModule):
         self.log(f'{split}_loss', loss.item())
         self.log(f'{split}_f1', self.f1(preds, targs).item())
         if split == 'valid':
-            self.log(f'valid_dice', dice_score(targs, preds))
-            targs_numpy = targs.cpu().flatten().numpy().astype(int)
-            preds_numpy = preds.cpu().flatten()
-            self.log(f'valid_auc', roc_auc_score(targs_numpy, preds_numpy))
+            self.log(f'valid_dice', dice_score(preds, targs))
+            self.log(f'valid_auc', roc_auc(preds, targs))
 
     def configure_optimizers(self):
         optimizer = Adam(self.parameters(), lr=self.lr)

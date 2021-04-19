@@ -1,5 +1,6 @@
 import numpy as np
 from scipy.spatial import cKDTree
+from sklearn.metrics import roc_auc_score
 
 def dice_score(pred, targ, smooth=1):
     intersection = (pred * targ).sum()
@@ -16,3 +17,10 @@ def hausdorff_95(pred, targ, spacing):
     pred_targ_dist,_ = pred_kdtree.query(targ_points)
     dist_pred_dist,_ = targ_kdtree.query(pred_points)
     return max(np.quantile(pred_targ_dist,0.95), np.quantile(dist_pred_dist,0.95))
+
+def roc_auc(preds, targs):
+    targs_numpy = targs.cpu().flatten().numpy().astype(int)
+    if targs_numpy.sum() > 0:
+        preds_numpy = preds.cpu().flatten()
+        return roc_auc_score(targs_numpy, preds_numpy)
+    return 0.5
