@@ -6,9 +6,14 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', type=int, default=16)
     parser.add_argument('--patch_size', type=int, default=32)
     parser.add_argument('--stride', type=int, default=28)
-    parser.add_argument('--normalize', type=bool, default=False)
-    parser.add_argument('--norm_type', type=str, default='global', choices=['global', 'patch-wise'])
+    parser.add_argument('--normalize', type=str, choices=['global', 'patch-wise'])
+    parser.add_argument('--clip_range_low', type=float)
+    parser.add_argument('--clip_range_high', type=float)
     hparams = vars(parser.parse_args())
+    if 'clip_range_low' in hparams and 'clip_range_high' in hparams:
+        hparams['data_clip_range'] = (hparams['clip_range_low'], hparams['clip_range_high'])
+        del hparams['clip_range_low']
+        del hparams['clip_range_high']
 
     asoca_dm = AsocaDataModule(**hparams)
     asoca_dm.prepare_data()
