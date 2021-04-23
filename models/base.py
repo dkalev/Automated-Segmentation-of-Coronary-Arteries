@@ -37,17 +37,17 @@ class Base(pl.LightningModule):
     def get_empty_patch_mask(targs):
         return targs.sum(dim=[1,2,3,4]) > 0
     
-    def prepare_batch(self, batch):
+    def prepare_batch(self, batch, split='train'):
         # crops targets to match the padding lost in the convolutions
         x, targs = batch
         targs = self.crop_targs(targs)
-        if self.skip_empty_patches:
+        if self.skip_empty_patches and split == 'train':
             mask = self.get_empty_patch_mask(targs)
             x, targs = x[mask], targs[mask]
         return x, targs
 
     def training_step(self, batch, batch_idx):
-        x, targs = self.prepare_batch(batch)
+        x, targs = self.prepare_batch(batch, 'train')
         if len(x) == 0: return
 
         preds = self(x)
@@ -56,7 +56,7 @@ class Base(pl.LightningModule):
         return loss
    
     def validation_step(self, batch, batch_idx):
-        x, targs = self.prepare_batch(batch)
+        x, targs = self.prepare_batch(batch, 'valid')
         if len(x) == 0: return
 
         preds = self(x)
