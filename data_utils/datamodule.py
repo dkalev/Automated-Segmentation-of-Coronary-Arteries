@@ -68,7 +68,7 @@ class DatasetBuilder():
                 elif all([ self.patch_size == f.attrs['patch_size'],
                            self.stride == f.attrs['stride'],
                            self.normalize == f.attrs['normalize'],
-                           self.data_clip_range == f.attrs['data_clip_range'] ]):
+                           self.data_clip_range == tuple(f.attrs['data_clip_range']) ]):
                     logger.info(f'Using HDF5 dataset found at: {self.datapath}')
                     return 'use'
                 else:
@@ -298,7 +298,7 @@ class AsocaDataModule(LightningDataModule, DatasetBuilder):
     def __init__(self, *args,
                 batch_size=1,
                 patch_size=32,
-                stride=None,
+                patch_stride=None,
                 normalize='global', # has no effect on resample; only when building from scratch
                 data_clip_range=(0, 400),
                 sourcepath='dataset/ASOCA2020Data.zip',
@@ -307,7 +307,7 @@ class AsocaDataModule(LightningDataModule, DatasetBuilder):
         super().__init__(*args, **kwargs)
         self.batch_size = batch_size
         self.patch_size = patch_size
-        self.stride = patch_size if stride is None else stride
+        self.stride = patch_size if patch_stride is None else patch_stride
         self.normalize = normalize
         self.data_clip_range = data_clip_range
         self.sourcepath = sourcepath
