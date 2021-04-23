@@ -10,10 +10,11 @@ if __name__ == '__main__':
     parser.add_argument('--clip_range_low', type=float)
     parser.add_argument('--clip_range_high', type=float)
     hparams = vars(parser.parse_args())
-    if 'clip_range_low' in hparams and 'clip_range_high' in hparams:
+
+    if hparams['clip_range_low'] is not None and hparams['clip_range_high'] is not None:
         hparams['data_clip_range'] = (hparams['clip_range_low'], hparams['clip_range_high'])
-        del hparams['clip_range_low']
-        del hparams['clip_range_high']
+    del hparams['clip_range_low']
+    del hparams['clip_range_high']
 
     asoca_dm = AsocaDataModule(**hparams)
     asoca_dm.prepare_data()
