@@ -4,6 +4,7 @@ from data_utils import AsocaDataModule
 from models.base import Baseline3DCNN
 from models.unet import UNet
 from models.e3nn_models import e3nnCNN
+from models.nn_unet import NNUNet
 import argparse
 import time
 
@@ -29,7 +30,7 @@ def get_logger(hparams):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Train model on ASOCA dataset')
-    parser.add_argument('--model', type=str, required=True, choices=['cnn', 'unet', 'e3nn_cnn'])
+    parser.add_argument('--model', type=str, required=True, choices=['cnn', 'unet', 'e3nn_cnn', 'nnunet'])
     parser.add_argument('--debug', type=bool, default=False, choices=[True, False])
     parser.add_argument('--gpus', type=int, default=1)
     parser.add_argument('--n_epochs', type=int, default=100)
@@ -45,7 +46,7 @@ if __name__ == '__main__':
 
     asoca_dm = AsocaDataModule(batch_size=hparams['batch_size'],
                                patch_size=hparams['patch_size'],
-                               stride=hparams['patch_stride'])
+                               patch_stride=hparams['patch_stride'])
 
     kwargs = { param: hparams[param] for param in ['loss_type', 'lr', 'kernel_size', 'skip_empty_patches'] }
     if hparams['model'] == 'cnn':
@@ -54,6 +55,8 @@ if __name__ == '__main__':
         model = UNet(**kwargs)
     elif hparams['model'] == 'e3nn_cnn':
         model = e3nnCNN(**kwargs)
+    elif hparams['model'] == 'nnunet':
+        model = NNUNet(**kwargs)
 
     trainer_kwargs = {
         'gpus': hparams['gpus'],
