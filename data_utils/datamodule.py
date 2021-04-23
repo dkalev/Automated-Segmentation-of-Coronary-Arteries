@@ -11,9 +11,10 @@ import traceback
 import numpy as np
 from tqdm import tqdm
 from pathlib import Path
-from collections import defaultdict
+from collections import defaultdict, OrderedDict
 from torch.utils.data import DataLoader
 from pytorch_lightning import LightningDataModule
+from concurrent.futures import ProcessPoolExecutor
 
 from .dataset import AsocaDataset
 from .helpers import get_n_patches, get_patch_padding, vol2patches, patches2vol
@@ -29,7 +30,7 @@ logger = logging.getLogger()
 class DatasetBuilder():
     @staticmethod
     def is_valid(f):
-        if not all([attr in f.attrs for attr in ['patch_size', 'stride', 'vol_shapes', 'normalization', 'data_clip_range']]): return False
+        if not all([attr in f.attrs for attr in ['patch_size', 'stride', 'vol_shapes', 'normalize', 'data_clip_range']]): return False
         if not all( key in f.keys() for key in ['train', 'valid']): return False
         if not all( key in f['train'].keys() for key in ['volumes', 'masks']): return False
         if not all( key in f['valid'].keys() for key in ['volumes', 'masks']): return False
@@ -66,7 +67,7 @@ class DatasetBuilder():
                     raise Exception
                 elif all([ self.patch_size == f.attrs['patch_size'],
                            self.stride == f.attrs['stride'],
-                           self.normalization == f.attrs['normalization'],
+                           self.normalize == f.attrs['normalize'],
                            self.data_clip_range == f.attrs['data_clip_range'] ]):
                     logger.info(f'Using HDF5 dataset found at: {self.datapath}')
                     return 'use'
@@ -207,12 +208,71 @@ class DatasetBuilder():
                 f.attrs['patch_size'] = patch_size_new
                 f.attrs['stride'] = stride_new
 
+    def worker(self, params):
+        vol_id, volume_path, mask_path, output_dir = params
+        volume, _ = nrrd.read(volume_path, index_order='C')
+        padding = get_patch_padding(volume.shape, self.patch_size, self.stride)
+        volume_patches, patched_shape = vol2patches(volume, self.patch_size, self.stride, padding, pad_value=-1000) # -1000 corresponds to air in HU units
+
+        if self.data_clip_range is not None:
+            volume_patches = self.clip_data(volume_patches)
+
+        shape_orig = volume.shape
+        n_patches = volume_patches.shape[0]
+
+        np.savez_compressed(Path(output_dir, 'vols', f'{vol_id}.npz'), volume_patches)
+        del volume, volume_patches
+
+        mask, _ = nrrd.read(mask_path, index_order='C')
+        mask_patches, _ = vol2patches(mask, self.patch_size, self.stride, padding)
+
+        np.savez_compressed(Path(output_dir, 'masks', f'{vol_id}.npz'), mask_patches)
+        del mask, mask_patches
+
+        return ( vol_id, {
+                'shape_orig': shape_orig,
+                'shape_patched': patched_shape,
+                'n_patches': n_patches,
+                'padding': padding
+                })
+
+    def build_dataset(self, volume_path, mask_path, output_dir='processed'):
+        meta = OrderedDict({
+            'patch_size': self.patch_size,
+            'stride': self.stride,
+            'normalize': self.normalize,
+            'data_clip_range': self.data_clip_range,
+        })
+
+        os.makedirs(output_dir, exist_ok=True)
+        for split in ['train', 'valid']:
+            os.makedirs(Path(output_dir, split), exist_ok=True)
+            for part in ['vols', 'masks']:
+                os.makedirs(Path(output_dir, split, part), exist_ok=True)
+    
+        def get_folderpath(file_id, output_dir):
+            split = 'train' if file_id < 33 else 'valid'
+            return Path(output_dir, split)
+
+        paths = [ ( file_id,
+                    Path(volume_path, f'{file_id}.nrrd'),
+                    Path(mask_path, f'{file_id}.nrrd'),
+                    get_folderpath(file_id, output_dir)) for file_id in range(40) ]
+
+        
+        with ProcessPoolExecutor(max_workers=4) as exec:
+            vol_meta = list(tqdm(
+                exec.map(self.worker, paths),
+                total=len(paths)))
+        
+        meta['vol_meta'] = { m[0]: m[1] for m in vol_meta }
+
     def build_hdf5_dataset(self, volume_path, mask_path, output_path='asoca.hdf5'):
         with h5py.File(output_path, 'w') as f:
             f.attrs['patch_size'] = self.patch_size
             f.attrs['stride'] = self.stride
-            f.attrs['normalize'] = self.normalize
-            f.attrs['clip_range'] = self.data_clip_range or (0,)
+            f.attrs['normalize'] = self.normalize or 'None'
+            f.attrs['data_clip_range'] = self.data_clip_range or (0,)
 
             volume_paths = [ Path(volume_path, filename) for filename in os.listdir(volume_path) ]
             mask_paths = [ Path(mask_path, filename) for filename in os.listdir(mask_path) ]
@@ -253,7 +313,6 @@ class AsocaDataModule(LightningDataModule, DatasetBuilder):
         self.sourcepath = sourcepath
         self.output_dir = output_dir
         self.datapath = Path(datapath)
-
 
     def prepare_data(self):
         action = self.verify_dataset()
