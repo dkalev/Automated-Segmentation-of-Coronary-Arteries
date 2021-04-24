@@ -304,13 +304,13 @@ class AsocaDataModule(LightningDataModule, DatasetBuilder):
         super().__init__(*args, **kwargs)
         self.batch_size = batch_size
 
-        if isinstance(patch_size, int): patch_size = np.array(patch_size, patch_size, patch_size)
+        if isinstance(patch_size, int): patch_size = np.array([patch_size, patch_size, patch_size])
         self.patch_size = patch_size
 
         if patch_stride is None:
             patch_stride = self.patch_size
         elif isinstance(patch_stride, int):
-            patch_stride = np.array(patch_stride, patch_stride, patch_stride)
+            patch_stride = np.array([patch_stride, patch_stride, patch_stride])
         self.stride = patch_stride
         self.data_clip_range = np.array(data_clip_range) if data_clip_range != 'None' else None
 
