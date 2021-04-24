@@ -30,7 +30,7 @@ logger = logging.getLogger()
 class DatasetBuilder():
     @staticmethod
     def is_valid(f):
-        if not all([attr in f.attrs for attr in ['patch_size', 'stride', 'vol_shapes', 'normalize', 'data_clip_range']]): return False
+        if not all([attr in f.attrs for attr in ['patch_size', 'stride', 'vol_shapes', 'normalize']]): return False
         if not all( key in f.keys() for key in ['train', 'valid']): return False
         if not all( key in f['train'].keys() for key in ['volumes', 'masks']): return False
         if not all( key in f['valid'].keys() for key in ['volumes', 'masks']): return False
@@ -65,10 +65,9 @@ class DatasetBuilder():
             with h5py.File(self.datapath, 'r') as f:
                 if not self.is_valid(f):
                     raise Exception
-                elif all([ self.patch_size == f.attrs['patch_size'],
-                           self.stride == f.attrs['stride'],
-                           self.normalize == f.attrs['normalize'],
-                           self.data_clip_range == tuple(f.attrs['data_clip_range']) ]):
+                elif all([ np.all(self.patch_size == f.attrs['patch_size']),
+                           np.all(self.stride == f.attrs['stride']),
+                           self.normalize == f.attrs['normalize'] ]):
                     logger.info(f'Using HDF5 dataset found at: {self.datapath}')
                     return 'use'
                 else:
@@ -82,7 +81,7 @@ class DatasetBuilder():
     def get_total_patches(self, filepaths):
         total = 0
         for filepath in filepaths:
-            volume_shape = nrrd.read_header(str(filepath))['sizes']
+            volume_shape = nrrd.read_header(str(filepath))['sizes'][::-1] # reverse order
             total += get_n_patches(volume_shape, self.patch_size, self.stride)
         return total
 
@@ -114,7 +113,7 @@ class DatasetBuilder():
         return data
 
     def populate_dataset(self, f, data_paths, hdf_group, num_patches):
-        ds_size = (num_patches, self.patch_size, self.patch_size, self.patch_size)
+        ds_size = (num_patches, *self.patch_size)
         volume_ds = hdf_group.create_dataset('volumes', ds_size)
         mask_ds = hdf_group.create_dataset('masks', ds_size)
 
@@ -146,8 +145,7 @@ class DatasetBuilder():
 
             cur_start = cur_end
 
-        if self.normalize is not None:
-            self.normalize_ds(volume_ds)
+        if self.normalize != 'none': self.normalize_ds(volume_ds)
 
         return shapes
 
@@ -272,7 +270,6 @@ class DatasetBuilder():
             f.attrs['patch_size'] = self.patch_size
             f.attrs['stride'] = self.stride
             f.attrs['normalize'] = self.normalize or 'None'
-            f.attrs['data_clip_range'] = self.data_clip_range or (0,)
 
             volume_paths = [ Path(volume_path, filename) for filename in os.listdir(volume_path) ]
             mask_paths = [ Path(mask_path, filename) for filename in os.listdir(mask_path) ]
@@ -306,10 +303,18 @@ class AsocaDataModule(LightningDataModule, DatasetBuilder):
                 output_dir='dataset', **kwargs):
         super().__init__(*args, **kwargs)
         self.batch_size = batch_size
+
+        if isinstance(patch_size, int): patch_size = np.array(patch_size, patch_size, patch_size)
         self.patch_size = patch_size
-        self.stride = patch_size if patch_stride is None else patch_stride
+
+        if patch_stride is None:
+            patch_stride = self.patch_size
+        elif isinstance(patch_stride, int):
+            patch_stride = np.array(patch_stride, patch_stride, patch_stride)
+        self.stride = patch_stride
+        self.data_clip_range = np.array(data_clip_range) if data_clip_range != 'None' else None
+
         self.normalize = normalize
-        self.data_clip_range = data_clip_range
         self.sourcepath = sourcepath
         self.output_dir = output_dir
         self.datapath = Path(datapath)

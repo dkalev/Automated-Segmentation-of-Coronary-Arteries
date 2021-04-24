@@ -27,21 +27,21 @@ def vol2patches(volume, patch_size, stride, padding, pad_value=0):
 
     padded_vol = F.pad(volume, padding, value=pad_value)
     
-    patches = padded_vol.unfold(0, patch_size, stride) \
-                        .unfold(1, patch_size, stride) \
-                        .unfold(2, patch_size, stride)
+    patches = padded_vol.unfold(0, patch_size[0], stride[0]) \
+                        .unfold(1, patch_size[1], stride[1]) \
+                        .unfold(2, patch_size[2], stride[2])
     patched_shape = tuple(patches.shape)
-    patches = patches.reshape(-1, patch_size, patch_size, patch_size)
+    patches = patches.reshape(-1, *patch_size)
     return patches, patched_shape
 
 def patches2vol(patches, patch_size, stride, padding=None):
     offset = patch_size - stride
     p = patches.permute(0,3,1,4,2,5)
-    p = torch.cat((p[0], p[1:][:,offset:].flatten(end_dim=1)))
+    p = torch.cat((p[0], p[1:][:,offset[0]:].flatten(end_dim=1)))
     p = p.permute(1,2,3,4,0)
-    p = torch.cat((p[0],p[1:][:,offset:].flatten(end_dim=1)))
+    p = torch.cat((p[0],p[1:][:,offset[1]:].flatten(end_dim=1)))
     p = p.permute(1,2,3,0)
-    p = torch.cat((p[0],p[1:][:,offset:].flatten(end_dim=1)))
+    p = torch.cat((p[0],p[1:][:,offset[2]:].flatten(end_dim=1)))
     
     p = p.permute(1,2,0)
     
