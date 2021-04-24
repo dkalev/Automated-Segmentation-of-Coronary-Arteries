@@ -5,7 +5,7 @@ from models.base import Baseline3DCNN
 from models.unet import UNet
 from models.e3nn_models import e3nnCNN
 from models.nn_unet import NNUNet
-import argparse
+import yaml
 import time
 
 import warnings
@@ -29,48 +29,36 @@ def get_logger(hparams):
     return logger
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser('Train model on ASOCA dataset')
-    parser.add_argument('--model', type=str, required=True, choices=['cnn', 'unet', 'e3nn_cnn', 'nnunet'])
-    parser.add_argument('--debug', type=bool, default=False, choices=[True, False])
-    parser.add_argument('--gpus', type=int, default=1)
-    parser.add_argument('--n_epochs', type=int, default=100)
-    parser.add_argument('--batch_size', type=int, default=16)
-    parser.add_argument('--patch_size', type=int, default=32)
-    parser.add_argument('--patch_stride', type=int, default=28)
-    parser.add_argument('--lr', type=float, default=1e-3)
-    parser.add_argument('--auto_lr_find', type=bool, default=False)
-    parser.add_argument('--loss_type', type=str, default='dicebce', choices=['dice', 'bce', 'dicebce'])
-    parser.add_argument('--skip_empty_patches', type=bool, default=False)
-    parser.add_argument('--kernel_size', type=int, default=3)
-    hparams = vars(parser.parse_args())
+    with open('config.yml', 'r') as f:
+        hparams = yaml.safe_load(f)
 
-    asoca_dm = AsocaDataModule(batch_size=hparams['batch_size'],
-                               patch_size=hparams['patch_size'],
-                               patch_stride=hparams['patch_stride'])
+    asoca_dm = AsocaDataModule(batch_size=hparams['train']['batch_size'], **hparams['dataset'])
 
-    kwargs = { param: hparams[param] for param in ['loss_type', 'lr', 'kernel_size', 'skip_empty_patches'] }
-    if hparams['model'] == 'cnn':
+    tparams = hparams['train']
+
+    kwargs = { param: tparams[param] for param in ['loss_type', 'lr', 'kernel_size', 'skip_empty_patches'] }
+    if tparams['model'] == 'cnn':
         model = Baseline3DCNN(**kwargs)
-    elif hparams['model'] == 'unet':
+    elif tparams['model'] == 'unet':
         model = UNet(**kwargs)
-    elif hparams['model'] == 'e3nn_cnn':
+    elif tparams['model'] == 'e3nn_cnn':
         model = e3nnCNN(**kwargs)
-    elif hparams['model'] == 'nnunet':
+    elif tparams['model'] == 'nnunet':
         model = NNUNet(**kwargs)
 
     trainer_kwargs = {
-        'gpus': hparams['gpus'],
-        'accelerator': 'ddp' if hparams['gpus'] > 1 else None,
-        'max_epochs': hparams['n_epochs'],
+        'gpus': tparams['gpus'],
+        'accelerator': 'ddp' if tparams['gpus'] > 1 else None,
+        'max_epochs': tparams['n_epochs'],
         # disable logging in debug mode
-        'checkpoint_callback': not hparams['debug'],
-        'logger': get_logger(hparams),
-        'auto_lr_find': hparams['auto_lr_find'],
+        'checkpoint_callback': not tparams['debug'],
+        'logger': get_logger(tparams),
+        'auto_lr_find': tparams['auto_lr_find'],
     }
 
     
     trainer = pl.Trainer(**trainer_kwargs)
 
-    if hparams['auto_lr_find']: trainer.tune(model, asoca_dm)
+    if tparams['auto_lr_find']: trainer.tune(model, asoca_dm)
 
     trainer.fit(model, asoca_dm)
