@@ -9,7 +9,7 @@ def get_padding(input_shape, output_shape):
     pad_left = pad // 2
     pad_right = pad - pad_left
     res = list(zip(pad_left[::-1], pad_right[::-1]))
-    return tuple(x for y in res for x in y )
+    return tuple(int(x) for y in res for x in y )
 
 def get_patch_padding(vol_shape, patch_size, stride):
     vol_shape = np.array(vol_shape)

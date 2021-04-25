@@ -1,13 +1,13 @@
 dataset:
-    patch_size:  [80, 192, 60]
-    patch_stride:  [70, 182, 50]
-    normalize: none # one of [none, global, patch-wise]
+    patch_size:  [80, 192, 160]
+    patch_stride:  [70, 182, 150]
+    normalize: global # one of [none, global, patch-wise]
     data_clip_range: [0, 400]
 train:
-    model: cnn # one of [cnn, unet, e3nn_cnn, nnunet]
+    model: nnunet # one of [cnn, unet, e3nn_cnn, nnunet]
     debug: false
     gpus: 1
-    n_epochs: 100
+    n_epochs: 10
     batch_size: 2
     lr: 0.001
     auto_lr_find: false

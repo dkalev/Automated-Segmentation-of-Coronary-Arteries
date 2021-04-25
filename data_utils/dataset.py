@@ -1,5 +1,8 @@
 import ast
+import json
 import h5py
+from pathlib import Path
+import numpy as np
 import torch
 from torch.utils.data import Dataset
 
@@ -49,3 +52,33 @@ class AsocaDataset(Dataset):
             x, y = x.unsqueeze(0), y.unsqueeze(0)
         return x, y
 
+
+class AsocaNumpyDataset(Dataset):
+    def __init__(self, ds_path='dataset/processed', split='train'):
+        self.ds_path = Path(ds_path, split)
+        with open(Path(ds_path, 'dataset.json'), 'r') as f:
+            meta = json.load(f)
+        self.vol_meta = { int(key): val for key, val in meta['vol_meta'].items() if val['split'] == split }
+        patch_meta = [ m['n_patches'] for m in meta['vol_meta'].values() ]
+        self.max_patches = np.max(patch_meta)
+        self.len = np.sum(patch_meta)
+
+    def __len__(self):
+        return self.len
+
+    def split_index(self, index):
+        if isinstance(index, int) or isinstance(index, np.int64):
+            file_id, idx = index // self.max_patches, index % self.max_patches
+        elif isinstance(index, slice):
+            file_id = index.start // self.max_patches
+            idx = slice(index.start % self.max_patches, index.stop % self.max_patches)
+        return file_id, idx
+
+    def __getitem__(self, index):
+        file_id, idx = self.split_index(index)
+        x = np.load(Path(self.ds_path, 'vols', f'{file_id}.npy'))
+        y = np.load(Path(self.ds_path, 'masks', f'{file_id}.npy'))
+        x, y = x[idx], y[idx]
+        x, y = torch.tensor(x), torch.tensor(y)
+        if len(x.shape) == 3: x, y = x.unsqueeze(0), y.unsqueeze(0)
+        return x, y
