@@ -1,12 +1,15 @@
+import torch
 import numpy as np
 from torch.utils.data import Sampler
 
 
 class ASOCASampler(Sampler):
-    def __init__(self, shapes, shuffle=False):
+    def __init__(self, shapes, shuffle=False, oversample=False, alpha=1):
         self.shapes = shapes
         self.gen = np.random.default_rng()
         self.shuffle = shuffle
+        self.oversample = oversample
+        self.alpha = alpha
 
     @property
     def max_patches(self):
@@ -19,6 +22,13 @@ class ASOCASampler(Sampler):
         if not hasattr(self, '_total_patches'):
             self._total_patches = sum([ v['n_patches'] for v in self.shapes.values() ])
         return self._total_patches 
+
+    def get_sample_weights(self, samples):
+        p = torch.ones_like(samples) / len(samples)
+        ratio = len(samples[samples==0]) / len(samples[samples==1]) * self.alpha
+        p[samples==1] *= ratio
+        p[samples==0] /= ratio
+        return p.tolist()
     
     def get_file_ids(self):
         file_ids = list(self.shapes.keys())
@@ -28,11 +38,15 @@ class ASOCASampler(Sampler):
             return file_ids
     
     def get_patch_idxs(self, file_id):
-        shape = self.shapes[file_id]
+        meta = self.shapes[file_id]
+        n_patches = meta['n_patches']
         if self.shuffle:
-            return self.gen.permutation(range(shape['n_patches']))
+            return self.gen.permutation(range(n_patches))
+        elif self.oversample:
+            weights = self.get_sample_weights(meta['contains_arteries'], alpha=10)
+            return self.gen.choice(range(n_patches), n_patches, p=weights)
         else:
-            return range(shape['n_patches'])
+            return range(n_patches)
 
     def __iter__(self):
         for file_id in self.get_file_ids():

@@ -24,6 +24,7 @@ class AsocaDataModule(DatasetBuilder, LightningDataModule):
                 patch_stride=None,
                 normalize=False,
                 data_clip_range=(0, 400),
+                rebuild=False,
                 sourcepath='dataset/ASOCA2020Data.zip',
                 datapath='dataset/asoca.hdf5',
                 data_dir='dataset/processed', **kwargs):
@@ -38,21 +39,22 @@ class AsocaDataModule(DatasetBuilder, LightningDataModule):
         elif isinstance(patch_stride, int):
             patch_stride = np.array([patch_stride, patch_stride, patch_stride])
         self.stride = patch_stride
-        self.data_clip_range = np.array(data_clip_range) if data_clip_range != 'None' else None
+        self.data_clip_range = list(data_clip_range) if data_clip_range != 'None' else None
 
         self.normalize = normalize
+        self.rebuild = rebuild
         self.sourcepath = sourcepath
         self.data_dir = data_dir
         self.datapath = Path(datapath)
 
     def prepare_data(self):
-        if self.is_valid():
+        if self.is_valid() and not self.rebuild:
             logger.info(f'Using existing dataset located at {self.data_dir}')
             return
+        else:
+            self.logger.info(f'Building dataset from scratch.')
 
-        if Path(self.data_dir).is_dir():
-            self.logger.info(f'Found corrupted dataset. Building from scratch.')
-            shutil.rmtree(self.data_dir)
+        if Path(self.data_dir).is_dir(): shutil.rmtree(self.data_dir)
 
         subdirs = ['Train', 'Train_Masks', 'Test']
         folders_exist = [ Path(self.data_dir, subdir).is_dir() for subdir in subdirs ]
@@ -73,7 +75,7 @@ class AsocaDataModule(DatasetBuilder, LightningDataModule):
     def train_dataloader(self, batch_size=None):
         if batch_size is None: batch_size = self.batch_size
         train_split = AsocaDataset(split='train')
-        sampler = ASOCASampler(train_split.vol_meta, shuffle=True)
+        sampler = ASOCASampler(train_split.vol_meta, shuffle=True, oversample=True)
         return DataLoader(train_split, sampler=sampler, batch_size=batch_size, num_workers=12, pin_memory=True)
 
     def val_dataloader(self, batch_size=None):
