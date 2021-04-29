@@ -27,6 +27,7 @@ class AsocaDataModule(DatasetBuilder, LightningDataModule):
                 rebuild=False,
                 resample_vols=True,
                 crop_empty=False,
+                oversample=False,
                 sourcepath='dataset/ASOCA2020Data.zip',
                 datapath='dataset/asoca.hdf5',
                 data_dir='dataset/processed', **kwargs):
@@ -47,6 +48,7 @@ class AsocaDataModule(DatasetBuilder, LightningDataModule):
         self.rebuild = rebuild
         self.resample_vols = resample_vols
         self.crop_empty = crop_empty
+        self.oversample = oversample
         self.sourcepath = sourcepath
         self.data_dir = data_dir
         self.datapath = Path(datapath)
@@ -81,7 +83,7 @@ class AsocaDataModule(DatasetBuilder, LightningDataModule):
     def train_dataloader(self, batch_size=None):
         if batch_size is None: batch_size = self.batch_size
         train_split = AsocaDataset(split='train')
-        sampler = ASOCASampler(train_split.vol_meta, shuffle=True, oversample=True)
+        sampler = ASOCASampler(train_split.vol_meta, shuffle=True, oversample=self.oversample)
         return DataLoader(train_split, sampler=sampler, batch_size=batch_size, num_workers=12, pin_memory=True)
 
     def val_dataloader(self, batch_size=None):

@@ -6,6 +6,7 @@ dataset:
     num_workers: 6
     rebuild: false
     resample_vols: true
+    oversample: true
     crop_empty: false
 train:
     model: nnunet # one of [cnn, unet, e3nn_cnn, nnunet]
