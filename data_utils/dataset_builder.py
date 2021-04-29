@@ -93,7 +93,8 @@ class DatasetBuilder():
 
         if self.resample_vols:
             new_shape, spacing = self.get_resampled_shape(mask, header)
-            mask = resize(mask, new_shape, order=0, mode='constant', cval=0, clip=True, anti_aliasing=False)
+            dtype = mask.dtype
+            mask = resize(mask.astype(float), new_shape, order=0, mode='constant', cval=0, clip=True, anti_aliasing=False).astype(dtype)
 
         mask_patches, _ = vol2patches(mask, self.patch_size, self.stride, padding)
 
