@@ -25,6 +25,8 @@ class AsocaDataModule(DatasetBuilder, LightningDataModule):
                 normalize=False,
                 data_clip_range=(0, 400),
                 rebuild=False,
+                resample_vols=True,
+                crop_empty=False,
                 sourcepath='dataset/ASOCA2020Data.zip',
                 datapath='dataset/asoca.hdf5',
                 data_dir='dataset/processed', **kwargs):
@@ -43,16 +45,20 @@ class AsocaDataModule(DatasetBuilder, LightningDataModule):
 
         self.normalize = normalize
         self.rebuild = rebuild
+        self.resample_vols = resample_vols
+        self.crop_empty = crop_empty
         self.sourcepath = sourcepath
         self.data_dir = data_dir
         self.datapath = Path(datapath)
 
     def prepare_data(self):
-        if self.is_valid() and not self.rebuild:
+        if not self.is_valid():
+            self.logger.info(f'Corrupted dataset. Building from scratch.')
+        elif self.rebuild:
+            self.logger.info(f'Rebuild option set to true. Building from scratch.')
+        else:
             logger.info(f'Using existing dataset located at {self.data_dir}')
             return
-        else:
-            self.logger.info(f'Building dataset from scratch.')
 
         if Path(self.data_dir).is_dir(): shutil.rmtree(self.data_dir)
 

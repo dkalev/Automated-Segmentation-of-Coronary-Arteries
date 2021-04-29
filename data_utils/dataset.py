@@ -11,7 +11,7 @@ class AsocaDataset(Dataset):
         with open(Path(ds_path, 'dataset.json'), 'r') as f:
             meta = json.load(f)
         self.vol_meta = { int(key): val for key, val in meta['vol_meta'].items() if val['split'] == split }
-        patch_meta = [ m['n_patches'] for m in meta['vol_meta'].values() ]
+        patch_meta = [ m['n_patches'] for m in self.vol_meta.values() ]
         self.max_patches = np.max(patch_meta)
         self.len = np.sum(patch_meta)
 

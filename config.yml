@@ -1,17 +1,22 @@
 dataset:
-    patch_size:  [80, 192, 160]
-    patch_stride:  [70, 182, 150]
-    normalize: global # one of [none, global, patch-wise]
-    data_clip_range: [0, 400]
+    patch_size:  [128, 128, 128] # [80, 192, 160]
+    patch_stride: [108, 108, 108] # [70, 182, 150]
+    normalize: false
+    data_clip_range: None # [0, 400] or None
+    num_workers: 6
+    rebuild: false
+    resample_vols: true
+    crop_empty: false
 train:
     model: nnunet # one of [cnn, unet, e3nn_cnn, nnunet]
-    debug: false
+    debug: true
     gpus: 1
-    n_epochs: 10
+    n_epochs: 20
     batch_size: 2
     lr: 0.001
     auto_lr_find: false
-    loss_type: dicebce # one of [dice, bce, dicebce]
+    loss_type: dice # one of [dice, bce, dicebce]
+    fully_conv: true
     skip_empty_patches: false
     kernel_size: 3
 

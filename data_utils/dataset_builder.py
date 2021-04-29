@@ -33,7 +33,7 @@ class DatasetBuilder():
 
         if not set(meta.keys()) == set(['data_clip_range', 'normalize', 'patch_size', 'stride', 'vol_meta']): return False
         if not set(meta['vol_meta'].keys()) == set([str(x) for x in range(40)]): return False
-        if not all([set(vol_meta.keys()) == set(['shape_orig', 'shape_resized', 'split', 'orig_spacing', 'shape_patched', 'n_patches', 'contains_arteries', 'padding']) 
+        if not all([set(vol_meta.keys()) == set(['shape_orig', 'shape_cropped', 'shape_resized', 'split', 'orig_spacing', 'shape_patched', 'n_patches', 'contains_arteries', 'padding']) 
             for vol_meta in meta['vol_meta'].values()
         ]): return False
 
@@ -52,37 +52,49 @@ class DatasetBuilder():
             shutil.move(str(Path(data_dir, folder)), self.data_dir)
         os.rmdir(data_dir)
 
-    def preprocess(self, params):
-        vol_id, volume_path, mask_path, data_dir, split = params
-        volume, header = nrrd.read(volume_path, index_order='C')
-        shape_orig = volume.shape
-
+    @staticmethod
+    def get_resampled_shape(volume, header):
         spacing = np.diagonal(header['space directions'])[::-1]
-        new_shape = ((spacing / 0.625) * volume.shape).round().astype(np.int64)
-        volume = resize(volume, new_shape, order=1, preserve_range=True)
-
-        padding = get_patch_padding(volume.shape, self.patch_size, self.stride)
-        volume_patches, patched_shape = vol2patches(volume, self.patch_size, self.stride, padding, pad_value=-1000) # -1000 corresponds to air in HU units
-
+        return ((spacing / 0.625) * volume.shape).round().astype(np.int64), spacing
+    
+    @staticmethod
+    def get_crop_mask(data):
+        nonzero = np.argwhere(data)
+        nonzero = sorted(nonzero, key=lambda x: x.sum())
+        top_left, bottom_right = nonzero[0], nonzero[-1]
+        
+        return (
+            slice(top_left[0], bottom_right[0]+1),
+            slice(top_left[1], bottom_right[1]+1),
+            slice(top_left[2], bottom_right[2]+1),
+        )
+        
+    def normalize_data(self, data):
         if self.data_clip_range is not None:
             lb, ub = self.data_clip_range
-            mask = (volume_patches > lb) & (volume_patches < ub) 
-            volume_patches = np.clip(volume_patches, lb, ub)
+            mask = (data > lb) & (data < ub) 
+            data = np.clip(data, lb, ub)
         else:
-            mask = np.ones_like(volume_patches)
-        
-        if self.normalize:
-            mean = volume_patches[mask].mean()
-            std  = volume_patches[mask].std()
-            volume_patches = (volume_patches - mean) / std
+            mask = np.ones_like(data)
+        mean = data[mask].mean()
+        std  = data[mask].std()
+        return (data - mean) / std
 
-        n_patches = volume_patches.shape[0]
+    def preprocess(self, params):
+        vol_id, volume_path, mask_path, data_dir, split = params
 
-        np.save(Path(data_dir, 'vols', f'{vol_id}.npy'), volume_patches)
-        del volume, volume_patches
+        mask, header = nrrd.read(mask_path, index_order='C')
 
-        mask, _ = nrrd.read(mask_path, index_order='C')
-        mask = resize(mask, new_shape, order=0, mode='constant', cval=0, clip=True, anti_aliasing=False)
+        padding = get_patch_padding(mask.shape, self.patch_size, self.stride)
+
+        if self.crop_empty:
+            crop_mask = self.get_crop_mask(mask)
+            mask = mask[crop_mask]
+
+        if self.resample_vols:
+            new_shape, spacing = self.get_resampled_shape(mask, header)
+            mask = resize(mask, new_shape, order=0, mode='constant', cval=0, clip=True, anti_aliasing=False)
+
         mask_patches, _ = vol2patches(mask, self.patch_size, self.stride, padding)
 
         contains_arteries = mask_patches.sum(dim=(1,2,3)) > 1
@@ -90,8 +102,31 @@ class DatasetBuilder():
         np.save(Path(data_dir, 'masks', f'{vol_id}.npy'), mask_patches)
         del mask, mask_patches
 
+        volume, _ = nrrd.read(volume_path, index_order='C')
+
+        shape_orig = volume.shape
+        shape_cropped = shape_orig
+
+        if self.crop_empty:
+            volume = volume[crop_mask]
+            shape_cropped = volume.shape
+
+        if self.resample_vols:
+            volume = resize(volume, new_shape, order=1, preserve_range=True)
+
+        volume_patches, patched_shape = vol2patches(volume, self.patch_size, self.stride, padding, pad_value=-1000) # -1000 corresponds to air in HU units
+
+        if self.normalize:
+            volume_patches = self.normalize_data(volume_patches)
+
+        n_patches = volume_patches.shape[0]
+
+        np.save(Path(data_dir, 'vols', f'{vol_id}.npy'), volume_patches)
+        del volume, volume_patches
+
         return ( vol_id, {
                 'shape_orig': shape_orig,
+                'shape_cropped': shape_cropped,
                 'shape_resized': new_shape.tolist(),
                 'split': split,
                 'orig_spacing': spacing.tolist(),
