@@ -55,13 +55,20 @@ class DatasetBuilder():
     @staticmethod
     def get_resampled_shape(volume, header):
         spacing = np.diagonal(header['space directions'])[::-1]
-        return ((spacing / 0.625) * volume.shape).round().astype(np.int64), spacing
+        target_spacing = np.array([0.625, 0.3964845058, 0.3964845058 ])
+        return ((spacing / target_spacing) * volume.shape).round().astype(np.int64), spacing
     
-    @staticmethod
-    def get_crop_mask(data):
+    def get_crop_mask(self, data):
         nonzero = np.argwhere(data)
         nonzero = sorted(nonzero, key=lambda x: x.sum())
         top_left, bottom_right = nonzero[0], nonzero[-1]
+        padding = self.patch_size - (bottom_right - top_left)
+        padding = np.maximum(padding, 0) # discard negative values which will crop instead
+        offset_left = padding // 2
+        offset_right = padding - offset_left
+
+        top_left -= offset_left
+        bottom_right += offset_right
         
         return (
             slice(top_left[0], bottom_right[0]+1),
