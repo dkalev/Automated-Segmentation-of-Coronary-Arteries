@@ -13,7 +13,7 @@ class Base(pl.LightningModule):
         self.f1 = pl.metrics.F1()
         self.lr = lr
         self.skip_empty_patches = skip_empty_patches
-    
+
     @staticmethod
     def get_loss_func(name):
         if name == 'bce':
@@ -27,13 +27,13 @@ class Base(pl.LightningModule):
         else:
             raise ValueError(f'Unknown loss type: {name}')
 
-    def crop_targs(self, targs):
-        targs = targs[..., # [batch_size, n_channels]
+    def crop_data(self, data):
+        data = data[..., # [batch_size, n_channels]
                      self.crop:-self.crop, # x
                      self.crop:-self.crop, # y
                      self.crop:-self.crop] # z
 
-        return targs
+        return data
     
     @staticmethod
     def get_empty_patch_mask(targs):
@@ -42,7 +42,7 @@ class Base(pl.LightningModule):
     def prepare_batch(self, batch, split='train'):
         # crops targets to match the padding lost in the convolutions
         x, targs = batch
-        targs = self.crop_targs(targs)
+        targs = self.crop_data(targs)
         if self.skip_empty_patches and split == 'train':
             mask = self.get_empty_patch_mask(targs)
             x, targs = x[mask], targs[mask]
@@ -53,7 +53,17 @@ class Base(pl.LightningModule):
         if len(x) == 0: return
 
         preds = self(x)
-        loss = self.crit(preds, targs)
+        if isinstance(preds, torch.Tensor):
+            preds = self.crop_data(preds)
+            loss = self.crit(preds, targs)
+        else:
+            preds = [ self.crop_data(pred) for pred in preds ]
+            losses = torch.tensor([ self.crit(pred, targs) for pred in preds ]).to(preds[0].device)
+            if hasattr(self, 'ds_weight'):
+                loss = losses @ self.ds_weight
+            else:
+                loss = losses.sum()
+
         self.log_metrics(preds, targs, loss)
         return loss
    
@@ -62,11 +72,18 @@ class Base(pl.LightningModule):
         if len(x) == 0: return
 
         preds = self(x)
+        if isinstance(preds, torch.Tensor):
+            preds = self.crop_data(preds)
+        else:
+            preds = self.crop_data(preds[-1])
         loss = self.crit(preds, targs)
         self.log_metrics(preds, targs, loss, split='valid')
     
     def log_metrics(self, preds, targs, loss, split='train'):
-        preds = torch.sigmoid(preds)
+        if isinstance(preds, torch.Tensor):
+            preds = torch.sigmoid(preds)
+        else:
+            preds = torch.sigmoid(preds[-1])
         self.log(f'{split}_loss', loss.item())
         self.log(f'{split}_f1', self.f1(preds, targs).item())
         if split == 'valid':

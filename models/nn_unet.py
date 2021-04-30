@@ -1,48 +1,50 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from .base import Base
 from collections import OrderedDict
 
 class NNUNet(Base):
-    def __init__(self, *args, kernel_size=3, n_features=32, **kwargs):
+    def __init__(self, *args, kernel_size=3, n_features=32, deep_supervision=True, **kwargs):
         super().__init__(*args, **kwargs)
         self.kernel_size = kernel_size
         self.padding = kernel_size // 2
+        self.deep_supervision = deep_supervision
 
-        self.encoders = nn.ModuleDict({
-            'encoder1': self.get_encoder(1, 32, stride=1),
-            'encoder2': self.get_encoder(32, 64),
-            'encoder3': self.get_encoder(64, 128),
-            'encoder4': self.get_encoder(128, 256),
-            'encoder5': self.get_encoder(256, 320),
-        })
+        self.encoders = nn.ModuleList([
+            self.get_encoder(1, 32, stride=1),
+            self.get_encoder(32, 64),
+            self.get_encoder(64, 128),
+            self.get_encoder(128, 256),
+            self.get_encoder(256, 320),
+        ])
 
         self.bottleneck = self.get_bottleneck(320)
 
-        self.decoders = nn.ModuleDict({
-            'decoder1': nn.ModuleDict({
+        self.decoders = nn.ModuleList([
+            nn.ModuleDict({
                 'upsampler': self.get_upsampler(320, 320, kernel_size=(1,2,2), stride=(1,2,2)),
                 'decoder': self.get_decoder(640, 320)
             }),
-            'decoder2': nn.ModuleDict({
-                'upsampler': self.get_upsampler(320, 256),
-                'decoder': self.get_decoder(512, 256)
-            }),
-            'decoder3': nn.ModuleDict({
-                'upsampler': self.get_upsampler(256, 128),
-                'decoder': self.get_decoder(256, 128)
-            }),
-            'decoder4': nn.ModuleDict({
-                'upsampler': self.get_upsampler(128, 64),
-                'decoder': self.get_decoder(128, 64)
-            }),
-            'decoder5': nn.ModuleDict({
-                'upsampler': self.get_upsampler(64, 32),
-                'decoder': self.get_decoder(64, 32)
-            }),
-        })
+            nn.ModuleDict({ 'upsampler': self.get_upsampler(320, 256), 'decoder': self.get_decoder(512, 256) }),
+            nn.ModuleDict({ 'upsampler': self.get_upsampler(256, 128), 'decoder': self.get_decoder(256, 128) }),
+            nn.ModuleDict({ 'upsampler': self.get_upsampler(128, 64), 'decoder': self.get_decoder(128, 64) }),
+            nn.ModuleDict({ 'upsampler': self.get_upsampler(64, 32), 'decoder': self.get_decoder(64, 32) }),
+        ])
 
-        self.final = nn.Conv3d(n_features, 1, kernel_size=1)
+
+        if self.deep_supervision:
+            self.heads = nn.ModuleList([
+                nn.Conv3d(320, 1, kernel_size=1),
+                nn.Conv3d(256, 1, kernel_size=1),
+                nn.Conv3d(128, 1, kernel_size=1),
+                nn.Conv3d(64, 1, kernel_size=1),
+                nn.Conv3d(32, 1, kernel_size=1),
+            ])
+        else:
+            self.final = nn.Conv3d(n_features, 1, kernel_size=1)
+    
+        self.ds_weight = nn.Parameter(torch.ones(5)/5)
 
         self.crop = len(self.encoders) * 2 * self.padding # 2 conv per encoder
     
@@ -80,23 +82,28 @@ class NNUNet(Base):
         }))
 
     def forward(self, x):
+        targ_size = x.shape[2:]
+
         skip_cons = []
-        for encoder in self.encoders.values():
+        for encoder in self.encoders:
             x = encoder(x)
             skip_cons.append(x)
 
         x = self.bottleneck(x)
 
-        for i, block in enumerate(self.decoders.values()):
+        outputs = []
+        for i, block in enumerate(self.decoders):
             x = block['upsampler'](x)
             x = torch.cat([x, skip_cons[-(i+1)]], dim=1)
             x = block['decoder'](x)
+            if self.deep_supervision:
+                outputs.append(x)
 
-        x = self.final(x)
+        if self.deep_supervision:
+            outputs = [ head(out) for head, out in zip(self.heads, outputs) ]
+            outputs = [ F.interpolate(out, size=targ_size) for out in outputs ]
+            return outputs
+        else:
+            return self.final(x)
 
-        x = x[...,
-            self.crop:-self.crop, # x
-            self.crop:-self.crop, # y
-            self.crop:-self.crop] # z
-        return x
 
