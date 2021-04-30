@@ -3,7 +3,7 @@ import torch.nn as nn
 from torch.optim import Adam
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 import pytorch_lightning as pl
-from loss import DiceBCELoss, DiceLoss
+from loss import DiceBCELoss, DiceLoss, DiceBCE_OHNMLoss
 from metrics import dice_score, roc_auc
 
 class Base(pl.LightningModule):
@@ -22,6 +22,8 @@ class Base(pl.LightningModule):
             return DiceLoss()
         elif name == 'dicebce':
             return DiceBCELoss()
+        elif name == 'dicebceohnm':
+            return DiceBCE_OHNMLoss()
         else:
             raise ValueError(f'Unknown loss type: {name}')
 
