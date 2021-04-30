@@ -60,8 +60,7 @@ class DatasetBuilder():
     
     def get_crop_mask(self, data):
         nonzero = np.argwhere(data)
-        nonzero = sorted(nonzero, key=lambda x: x.sum())
-        top_left, bottom_right = nonzero[0], nonzero[-1]
+        top_left, bottom_right = np.min(nonzero, axis=0), np.max(nonzero, axis=0)
         padding = self.patch_size - (bottom_right - top_left)
         padding = np.maximum(padding, 0) # discard negative values which will crop instead
         offset_left = padding // 2
@@ -81,11 +80,9 @@ class DatasetBuilder():
             lb, ub = self.data_clip_range
             mask = (data > lb) & (data < ub) 
             data = np.clip(data, lb, ub)
-        else:
-            mask = np.ones_like(data)
-        mean = data[mask].mean()
-        std  = data[mask].std()
-        return (data - mean) / std
+            data = data[mask]
+
+        return (data - data.mean()) / data.std()
 
     def preprocess(self, params):
         vol_id, volume_path, mask_path, data_dir, split = params
