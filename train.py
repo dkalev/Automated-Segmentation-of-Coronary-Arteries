@@ -42,7 +42,7 @@ if __name__ == '__main__':
 
     asoca_dm = AsocaDataModule(batch_size=hparams['train']['batch_size'], **hparams['dataset'])
 
-    tparams = hparams['train']
+    tparams = { 'debug': hparams['debug'], **hparams['train']}
 
     kwargs = { param: tparams[param] for param in ['loss_type', 'lr', 'kernel_size', 'skip_empty_patches'] }
     if tparams['model'] == 'cnn':

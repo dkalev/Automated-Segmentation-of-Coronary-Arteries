@@ -58,7 +58,7 @@ class Base(pl.LightningModule):
             loss = self.crit(preds, targs)
         else:
             preds = [ self.crop_data(pred) for pred in preds ]
-            losses = torch.tensor([ self.crit(pred, targs) for pred in preds ]).to(preds[0].device)
+            losses = torch.stack([ self.crit(pred, targs) for pred in preds ]).to(preds[0].device)
             if hasattr(self, 'ds_weight'):
                 loss = losses @ self.ds_weight
             else:

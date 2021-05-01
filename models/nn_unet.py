@@ -44,7 +44,9 @@ class NNUNet(Base):
         else:
             self.final = nn.Conv3d(n_features, 1, kernel_size=1)
     
-        self.ds_weight = nn.Parameter(torch.ones(5)/5)
+        self.register_buffer('ds_weight',
+            torch.FloatTensor([0.53333333, 0.26666667, 0.13333333, 0.06666667, 0.])
+        )
 
         self.crop = len(self.encoders) * 2 * self.padding # 2 conv per encoder
     
@@ -105,7 +107,3 @@ class NNUNet(Base):
             return outputs
         else:
             return self.final(x)
-
-    def on_before_zero_grad(self, optim):
-        self.ds_weight.data = F.softmax(self.ds_weight.data, dim=0)
-        return super().on_before_zero_grad(optim)
