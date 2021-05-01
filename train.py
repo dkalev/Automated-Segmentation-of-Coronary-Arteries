@@ -5,6 +5,8 @@ from models.base import Baseline3DCNN
 from models.unet import UNet
 from models.e3nn_models import e3nnCNN
 from models.nn_unet import NNUNet
+import argparse
+import json
 import yaml
 import time
 
@@ -29,8 +31,14 @@ def get_logger(hparams):
     return logger
 
 if __name__ == '__main__':
-    with open('config.yml', 'r') as f:
-        hparams = yaml.safe_load(f)
+    parser = argparse.ArgumentParser('Training on ASOCA dataset')
+    parser.add_argument('--debug', type=bool, default=False, choices=[True, False])
+    parser.add_argument('--config_path', type=str, default='config.yml')
+    hparams = vars(parser.parse_args())
+
+    with open(hparams['config_path'], 'r') as f:
+        hparams = { **hparams, **yaml.safe_load(f) }
+        print(json.dumps(hparams, indent=2))
 
     asoca_dm = AsocaDataModule(batch_size=hparams['train']['batch_size'], **hparams['dataset'])
 
@@ -44,7 +52,7 @@ if __name__ == '__main__':
     elif tparams['model'] == 'e3nn_cnn':
         model = e3nnCNN(**kwargs)
     elif tparams['model'] == 'nnunet':
-        model = NNUNet(**kwargs)
+        model = NNUNet(**{**kwargs, **tparams['nnunet']})
 
     trainer_kwargs = {
         'gpus': tparams['gpus'],
@@ -56,7 +64,6 @@ if __name__ == '__main__':
         'auto_lr_find': tparams['auto_lr_find'],
     }
 
-    
     trainer = pl.Trainer(**trainer_kwargs)
 
     if tparams['auto_lr_find']: trainer.tune(model, asoca_dm)
