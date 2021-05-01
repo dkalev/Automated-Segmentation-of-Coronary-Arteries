@@ -6,6 +6,7 @@ import pytorch_lightning as pl
 from loss import DiceBCELoss, DiceLoss, DiceBCE_OHNMLoss
 from metrics import dice_score, roc_auc
 
+
 class Base(pl.LightningModule):
     def __init__(self, *args, lr=1e-3, loss_type='dice', skip_empty_patches=False, **kwargs):
         super().__init__(*args, **kwargs)
@@ -58,7 +59,7 @@ class Base(pl.LightningModule):
             loss = self.crit(preds, targs)
         else:
             preds = [ self.crop_data(pred) for pred in preds ]
-            losses = torch.stack([ self.crit(pred, targs) for pred in preds ]).to(preds[0].device)
+            losses = torch.stack([ self.crit(pred, targs) for pred in preds ])
             if hasattr(self, 'ds_weight'):
                 loss = losses @ self.ds_weight
             else:
@@ -87,7 +88,7 @@ class Base(pl.LightningModule):
         self.log(f'{split}_loss', loss.item())
         self.log(f'{split}_f1', self.f1(preds, targs).item())
         if split == 'valid':
-            self.log(f'valid_dice', dice_score(preds, targs))
+            self.log(f'valid_dice', dice_score(preds, targs), prog_bar=True)
             self.log(f'valid_auc', roc_auc(preds, targs))
 
     def configure_optimizers(self):

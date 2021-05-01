@@ -45,7 +45,7 @@ class NNUNet(Base):
             self.final = nn.Conv3d(n_features, 1, kernel_size=1)
     
         self.register_buffer('ds_weight',
-            torch.FloatTensor([0.53333333, 0.26666667, 0.13333333, 0.06666667, 0.])
+            torch.FloatTensor([0., 0.06666667, 0.13333333, 0.26666667, 0.53333333])
         )
 
         self.crop = len(self.encoders) * 2 * self.padding # 2 conv per encoder
