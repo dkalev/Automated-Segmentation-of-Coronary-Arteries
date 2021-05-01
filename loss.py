@@ -1,20 +1,46 @@
 import torch
 import torch.nn as nn
-from metrics import dice_score
 
 
 class DiceLoss(nn.Module):
 
-    def __init__(self, normalize=True):
+    def __init__(self, normalize=True, eps=1e-10):
         super().__init__()
         self.normalize = normalize
+        self.eps = eps
+
+    def forward(self, pred, targ):
+        assert pred.size() == targ.size()
+        if self.normalize: 
+            pred = torch.sigmoid(pred)
+        
+        targ = targ.type(pred.dtype)
+        intersection = torch.einsum("bcd,bcd->bc", pred, targ)
+        union = (torch.einsum("bkd->bk", pred) + torch.einsum("bkd->bk", targ))
+
+        loss = 1 - (2 * intersection + self.eps) / (union + self.eps)
+
+        return loss.mean()
+
+
+class GeneralizedDice(nn.Module):
+    def __init__(self, normalize=True, eps=1e-10):
+        super().__init__()
+        self.normalize = normalize
+        self.eps = eps
 
     def forward(self, pred, targ):
         assert pred.size() == targ.size()
         if self.normalize: 
             pred = torch.sigmoid(pred)
 
-        return 1. - dice_score(pred, targ)
+        targ = targ.type(pred.dtype)
+        w = 1 / ((torch.einsum("bkd->bk", targ) + self.eps) ** 2)
+        intersection = w * torch.einsum("bkd,bkd->bk", pred, targ)
+        union = w * (torch.einsum("bkd->bk", pred) + torch.einsum("bkd->bk", targ))
+
+        loss = 1 - 2 * (torch.einsum("bk->b", intersection) + self.eps) / (torch.einsum("bk->b", union) + self.eps)
+        return loss.mean()
 
 
 class DiceBCELoss(nn.Module):
@@ -40,20 +66,24 @@ class DiceBCE_OHNMLoss(nn.Module):
     """ Online Hard Negative Mining """
     def __init__(self, weighted_bce=True, ohnm_ratio=3):
         super().__init__()
-        self.dice = DiceLoss()
+        self.dice = GeneralizedDice()
         self.bce = nn.functional.binary_cross_entropy_with_logits
         self.weighted_bce = weighted_bce
         self.ohnm_ratio = ohnm_ratio
         
     def forward(self, pred, targ):
-        pred, targ = pred.flatten(), targ.flatten()
         n_pos = targ.sum().int().item()
         n_neg = targ.numel() - n_pos
         assert n_pos * self.ohnm_ratio <= n_neg
         
         losses = self.bce(pred, targ, reduction='none')
-        _, hns_idxs = losses[targ==0].topk(n_pos*self.ohnm_ratio)
-        pos_idxs = torch.where(targ==1)[0]
-        idxs = torch.cat([hns_idxs, pos_idxs])
+        n_hns = n_pos*self.ohnm_ratio if n_pos != 0 else int(0.1 * n_neg)
+        _, hns_idxs = losses[targ==0].flatten().topk(n_hns)
+        pos_idxs = torch.nonzero(targ.flatten()==1)
+        idxs = torch.cat([hns_idxs.flatten(), pos_idxs.flatten()])
 
-        return self.dice(pred[idxs], targ[idxs]) + losses[idxs].mean()
+        pred = pred.flatten()[idxs].view(*pred.shape[:2], -1)
+        targ = targ.flatten()[idxs].view(*targ.shape[:2], -1)
+        losses = losses.flatten()[idxs]
+
+        return self.dice(pred, targ) + losses.mean()

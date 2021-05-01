@@ -1,10 +1,12 @@
 import numpy as np
+import torch
 from scipy.spatial import cKDTree
 from sklearn.metrics import roc_auc_score
 
-def dice_score(pred, targ, smooth=1):
-    intersection = (pred * targ).sum()
-    return (2. * intersection + smooth) / ( pred.sum() + targ.sum() + smooth )
+def dice_score(pred, targ, eps=1e-10):
+    intersection = torch.einsum('bcwhd,bcwhd->bc', pred, targ)
+    union = torch.einsum('bcwhd->bc', pred) + torch.einsum('bcwhd->bc', targ)
+    return torch.mean((2. * intersection + eps) / ( union + eps ))
 
 def hausdorff_95(pred, targ, spacing):
     # Code from https://github.com/Ramtingh/ASOCA_MICCAI2020_Evaluation/blob/master/evaluation.py
