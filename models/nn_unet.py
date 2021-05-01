@@ -5,7 +5,7 @@ from .base import Base
 from collections import OrderedDict
 
 class NNUNet(Base):
-    def __init__(self, *args, kernel_size=3, n_features=32, deep_supervision=True, **kwargs):
+    def __init__(self, *args, kernel_size=3, n_features=32, deep_supervision=False, **kwargs):
         super().__init__(*args, **kwargs)
         self.kernel_size = kernel_size
         self.padding = kernel_size // 2
@@ -106,4 +106,6 @@ class NNUNet(Base):
         else:
             return self.final(x)
 
-
+    def on_before_zero_grad(self, optim):
+        self.ds_weight.data = F.softmax(self.ds_weight.data, dim=0)
+        return super().on_before_zero_grad(optim)
