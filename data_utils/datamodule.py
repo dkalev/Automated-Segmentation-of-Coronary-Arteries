@@ -82,13 +82,13 @@ class AsocaDataModule(DatasetBuilder, LightningDataModule):
     
     def train_dataloader(self, batch_size=None):
         if batch_size is None: batch_size = self.batch_size
-        train_split = AsocaDataset(split='train')
+        train_split = AsocaDataset(ds_path=self.data_dir, split='train')
         sampler = ASOCASampler(train_split.vol_meta, shuffle=True, oversample=self.oversample)
         return DataLoader(train_split, sampler=sampler, batch_size=batch_size, num_workers=12, pin_memory=True)
 
     def val_dataloader(self, batch_size=None):
         if batch_size is None: batch_size = self.batch_size
-        valid_split = AsocaDataset(split='valid')
+        valid_split = AsocaDataset(ds_path=self.data_dir, split='valid')
         sampler = ASOCASampler(valid_split.vol_meta)
         return DataLoader(valid_split, sampler=sampler, batch_size=batch_size, num_workers=12, pin_memory=True)
 
