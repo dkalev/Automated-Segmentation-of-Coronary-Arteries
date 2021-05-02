@@ -8,7 +8,7 @@ dataset:
     oversample: true
     crop_empty: true
 train:
-    model: nnunet # one of [cnn, unet, e3nn_cnn, nnunet]
+    model: unet # one of [cnn, unet, e3nn_cnn]
     gpus: 1
     n_epochs: 20
     batch_size: 2
@@ -16,8 +16,8 @@ train:
     auto_lr_find: false
     loss_type: dicebceohnm # one of [dice, bce, dicebce, dicebceohnm]
     fully_conv: true
-    skip_empty_patches: true
+    skip_empty_patches: false
     kernel_size: 3
     # model specific params
-    nnunet:
+    unet:
         deep_supervision: true

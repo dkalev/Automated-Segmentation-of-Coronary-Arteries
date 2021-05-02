@@ -1,73 +1,109 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from .base import Base
 from collections import OrderedDict
 
 class UNet(Base):
-    def __init__(self, *args, kernel_size=3, n_features=32, **kwargs):
+    def __init__(self, *args, kernel_size=3, n_features=32, deep_supervision=False, **kwargs):
         super().__init__(*args, **kwargs)
         self.kernel_size = kernel_size
         self.padding = kernel_size // 2
-        self.crop = self.padding * 2 * 3 # 2 conv per encoder
+        self.deep_supervision = deep_supervision
 
-        self.encoder1 = self.get_encoder(1, n_features, 'encoder1', mid_channels=n_features//2)
-        self.encoder2 = self.get_encoder(n_features, n_features*2, 'encoder2')
-        self.encoder3 = self.get_encoder(n_features*2, n_features*4, 'encoder3')
+        self.encoders = nn.ModuleList([
+            self.get_encoder(1, 32, stride=1),
+            self.get_encoder(32, 64),
+            self.get_encoder(64, 128),
+            self.get_encoder(128, 256),
+            self.get_encoder(256, 320),
+        ])
 
-        self.bottleneck = self.get_bottleneck(n_features*4, n_features*8)
+        self.bottleneck = self.get_bottleneck(320)
 
-        self.decoder1 = self.get_decoder(n_features*4+n_features*8, n_features*4, 'decoder1')
-        self.decoder2 = self.get_decoder(n_features*2+n_features*4, n_features*2, 'decoder2')
-        self.decoder3 = self.get_decoder(n_features+n_features*2, n_features, 'decoder3')
-        self.final = nn.Conv3d(n_features, 1, kernel_size=self.kernel_size, padding=self.padding)
+        self.decoders = nn.ModuleList([
+            nn.ModuleDict({
+                'upsampler': self.get_upsampler(320, 320, kernel_size=(1,2,2), stride=(1,2,2)),
+                'decoder': self.get_decoder(640, 320)
+            }),
+            nn.ModuleDict({ 'upsampler': self.get_upsampler(320, 256), 'decoder': self.get_decoder(512, 256) }),
+            nn.ModuleDict({ 'upsampler': self.get_upsampler(256, 128), 'decoder': self.get_decoder(256, 128) }),
+            nn.ModuleDict({ 'upsampler': self.get_upsampler(128, 64), 'decoder': self.get_decoder(128, 64) }),
+            nn.ModuleDict({ 'upsampler': self.get_upsampler(64, 32), 'decoder': self.get_decoder(64, 32) }),
+        ])
 
-    def get_encoder(self, in_channels, out_channels, name, mid_channels=None):
-        if mid_channels is None: mid_channels = in_channels
+
+        if self.deep_supervision:
+            self.heads = nn.ModuleList([
+                nn.Conv3d(320, 1, kernel_size=1),
+                nn.Conv3d(256, 1, kernel_size=1),
+                nn.Conv3d(128, 1, kernel_size=1),
+                nn.Conv3d(64, 1, kernel_size=1),
+                nn.Conv3d(32, 1, kernel_size=1),
+            ])
+        else:
+            self.final = nn.Conv3d(n_features, 1, kernel_size=1)
+    
+        self.register_buffer('ds_weight',
+            torch.FloatTensor([0., 0.06666667, 0.13333333, 0.26666667, 0.53333333])
+        )
+
+        self.crop = len(self.encoders) * 2 * self.padding # 2 conv per encoder
+    
+    def get_encoder(self, in_channels, out_channels, stride=2):
         return nn.Sequential(OrderedDict({
-            f'{name}-conv1': nn.Conv3d(in_channels, mid_channels, kernel_size=self.kernel_size, padding=self.padding, bias=False),
-            f'{name}-bn1': nn.BatchNorm3d(mid_channels),
-            f'{name}-relu1': nn.ReLU(inplace=True),
-            f'{name}-conv2': nn.Conv3d(mid_channels, out_channels, kernel_size=self.kernel_size, padding=self.padding, bias=False),
-            f'{name}-bn2': nn.BatchNorm3d(out_channels),
-            f'{name}-relu2': nn.ReLU(inplace=True),
-            f'{name}-maxpool': nn.MaxPool3d(2, stride=2)
+            'conv1': nn.Conv3d(in_channels, out_channels, kernel_size=self.kernel_size, stride=stride, padding=self.padding, bias=False),
+            'instnorm': nn.InstanceNorm3d(out_channels),
+            'lrelu': nn.LeakyReLU(inplace=True),
+            'conv2': nn.Conv3d(out_channels, out_channels, kernel_size=self.kernel_size, padding=self.padding, bias=False),
+            'instnorm': nn.InstanceNorm3d(out_channels),
+            'lrelu': nn.LeakyReLU(inplace=True),
         }))
 
-    def get_decoder(self, in_channels, out_channels, name):
+    def get_decoder(self, in_channels, out_channels):
         return nn.Sequential(OrderedDict({
-            f'{name}-deconv1': nn.ConvTranspose3d(in_channels, out_channels, kernel_size=self.kernel_size, stride=2, output_padding=1, bias=False),
-            f'{name}-bn1': nn.BatchNorm3d(out_channels),
-            f'{name}-relu1': nn.ReLU(inplace=True),
-            f'{name}-conv1': nn.Conv3d(out_channels, out_channels, kernel_size=self.kernel_size, bias=False),
-            f'{name}-bn2': nn.BatchNorm3d(out_channels),
-            f'{name}-relu2': nn.ReLU(inplace=True),
+            'conv1': nn.Conv3d(in_channels, out_channels, kernel_size=self.kernel_size, padding=self.padding, bias=False),
+            'instnorm': nn.InstanceNorm3d(out_channels),
+            'lrelu': nn.LeakyReLU(inplace=True),
+            'conv2': nn.Conv3d(out_channels, out_channels, kernel_size=self.kernel_size, padding=self.padding, bias=False),
+            'instnorm': nn.InstanceNorm3d(out_channels),
+            'lrelu': nn.LeakyReLU(inplace=True),
         }))
 
-    def get_bottleneck(self, in_channels, out_channels, name='bottleneck'):
+    def get_upsampler(self, in_channels, out_channels, kernel_size=2, stride=2):
+        return nn.ConvTranspose3d(in_channels, out_channels, kernel_size=kernel_size, stride=stride, bias=False)
+
+    def get_bottleneck(self, channels):
         return nn.Sequential(OrderedDict({
-            f'{name}-conv1': nn.Conv3d(in_channels, out_channels, kernel_size=self.kernel_size, padding=self.padding, bias=False),
-            f'{name}-bn1': nn.BatchNorm3d(out_channels),
-            f'{name}-relu1': nn.ReLU(inplace=True),
-            f'{name}-deconv1': nn.Conv3d(out_channels, out_channels, kernel_size=self.kernel_size, padding=self.padding, bias=False),
-            f'{name}-bn2': nn.BatchNorm3d(out_channels),
-            f'{name}-relu2': nn.ReLU(inplace=True),
+            'conv1': nn.Conv3d(channels, channels, kernel_size=self.kernel_size, stride=(1,2,2), padding=self.padding, bias=False),
+            'instnorm': nn.InstanceNorm3d(channels),
+            'lrelu': nn.LeakyReLU(inplace=True),
+            'conv2': nn.Conv3d(channels, channels, kernel_size=self.kernel_size, padding=self.padding, bias=False),
+            'instnorm': nn.InstanceNorm3d(channels),
+            'lrelu': nn.LeakyReLU(inplace=True),
         }))
 
     def forward(self, x):
-        enc1 = self.encoder1(x)
-        enc2 = self.encoder2(enc1)
-        enc3 = self.encoder3(enc2)
+        targ_size = x.shape[2:]
 
-        x = self.bottleneck(enc3)
+        skip_cons = []
+        for encoder in self.encoders:
+            x = encoder(x)
+            skip_cons.append(x)
 
-        x = self.decoder1(torch.cat([x ,enc3], dim=1))
-        x = self.decoder2(torch.cat([x ,enc2], dim=1))
-        x = self.decoder3(torch.cat([x ,enc1], dim=1))
-        x = self.final(x)
+        x = self.bottleneck(x)
 
-        x = x[...,
-            self.crop:-self.crop, # x
-            self.crop:-self.crop, # y
-            self.crop:-self.crop] # z
-        return x
+        outputs = []
+        for i, block in enumerate(self.decoders):
+            x = block['upsampler'](x)
+            x = torch.cat([x, skip_cons[-(i+1)]], dim=1)
+            x = block['decoder'](x)
+            if self.deep_supervision:
+                outputs.append(x)
 
+        if self.deep_supervision:
+            outputs = [ head(out) for head, out in zip(self.heads, outputs) ]
+            outputs = [ F.interpolate(out, size=targ_size) for out in outputs ]
+            return outputs
+        else:
+            return self.final(x)

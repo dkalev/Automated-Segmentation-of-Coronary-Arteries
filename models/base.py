@@ -35,6 +35,12 @@ class Base(pl.LightningModule):
                      self.crop:-self.crop] # z
 
         return data
+
+    def crop_preds(self, preds, targs):
+        if preds.shape == targs.shape:
+            return preds
+        else:
+            return self.crop_data(preds)
     
     @staticmethod
     def get_empty_patch_mask(targs):
@@ -55,10 +61,10 @@ class Base(pl.LightningModule):
 
         preds = self(x)
         if isinstance(preds, torch.Tensor):
-            preds = self.crop_data(preds)
+            preds = self.crop_preds(preds, targs)
             loss = self.crit(preds, targs)
         else:
-            preds = [ self.crop_data(pred) for pred in preds ]
+            preds = [ self.crop_preds(pred, targs) for pred in preds ]
             losses = torch.stack([ self.crit(pred, targs) for pred in preds ])
             if hasattr(self, 'ds_weight'):
                 loss = losses @ self.ds_weight
@@ -74,9 +80,9 @@ class Base(pl.LightningModule):
 
         preds = self(x)
         if isinstance(preds, torch.Tensor):
-            preds = self.crop_data(preds)
+            preds = self.crop_preds(preds, targs)
         else:
-            preds = self.crop_data(preds[-1])
+            preds = self.crop_preds(preds[-1], targs)
         loss = self.crit(preds, targs)
         self.log_metrics(preds, targs, loss, split='valid')
     

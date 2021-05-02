@@ -4,7 +4,6 @@ from data_utils import AsocaDataModule
 from models.base import Baseline3DCNN
 from models.unet import UNet
 from models.e3nn_models import e3nnCNN
-from models.nn_unet import NNUNet
 import argparse
 import json
 import yaml
@@ -48,11 +47,9 @@ if __name__ == '__main__':
     if tparams['model'] == 'cnn':
         model = Baseline3DCNN(**kwargs)
     elif tparams['model'] == 'unet':
-        model = UNet(**kwargs)
+        model = UNet(**{**kwargs, **tparams['unet']})
     elif tparams['model'] == 'e3nn_cnn':
         model = e3nnCNN(**kwargs)
-    elif tparams['model'] == 'nnunet':
-        model = NNUNet(**{**kwargs, **tparams['nnunet']})
 
     trainer_kwargs = {
         'gpus': tparams['gpus'],
