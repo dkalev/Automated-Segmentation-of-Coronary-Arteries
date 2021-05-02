@@ -15,8 +15,9 @@ class DiceLoss(nn.Module):
             pred = torch.sigmoid(pred)
         
         targ = targ.type(pred.dtype)
-        intersection = torch.einsum("bcd,bcd->bc", pred, targ)
-        union = (torch.einsum("bkd->bk", pred) + torch.einsum("bkd->bk", targ))
+        intersection = torch.einsum("bc...,bc...->bc", pred, targ)
+
+        union = (torch.einsum("bc...->bc", pred) + torch.einsum("bc...->bc", targ))
 
         loss = 1 - (2 * intersection + self.eps) / (union + self.eps)
 
@@ -35,11 +36,11 @@ class GeneralizedDice(nn.Module):
             pred = torch.sigmoid(pred)
 
         targ = targ.type(pred.dtype)
-        w = 1 / ((torch.einsum("bkd->bk", targ) + self.eps) ** 2)
-        intersection = w * torch.einsum("bkd,bkd->bk", pred, targ)
-        union = w * (torch.einsum("bkd->bk", pred) + torch.einsum("bkd->bk", targ))
+        w = 1 / ((torch.einsum("bc...->bc", targ) + self.eps) ** 2)
+        intersection = w * torch.einsum("bc...,bc...->bc", pred, targ)
+        union = w * (torch.einsum("bc...->bc", pred) + torch.einsum("bc...->bc", targ))
 
-        loss = 1 - 2 * (torch.einsum("bk->b", intersection) + self.eps) / (torch.einsum("bk->b", union) + self.eps)
+        loss = 1 - 2 * (torch.einsum("bc->b", intersection) + self.eps) / (torch.einsum("bc->b", union) + self.eps)
         return loss.mean()
 
 
