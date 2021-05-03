@@ -37,9 +37,12 @@ if __name__ == '__main__':
         hparams = { **hparams, **yaml.safe_load(f) }
         print(json.dumps(hparams, indent=2))
 
-    asoca_dm = AsocaDataModule(batch_size=hparams['train']['batch_size'], **hparams['dataset'])
-
     tparams = { 'debug': hparams['debug'], **hparams['train']}
+
+    asoca_dm = AsocaDataModule(
+        batch_size=hparams['train']['batch_size'],
+        distributed=tparams['gpus'] > 1,
+        **hparams['dataset'])
 
     kwargs = { param: tparams[param] for param in ['loss_type', 'lr', 'kernel_size', 'skip_empty_patches'] }
     if tparams['model'] == 'cnn':
