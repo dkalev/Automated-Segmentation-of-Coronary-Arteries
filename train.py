@@ -1,9 +1,7 @@
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import TensorBoardLogger
 from data_utils import AsocaDataModule
-from models.base import Baseline3DCNN
-from models.unet import UNet
-from models.e3nn_models import e3nnCNN
+from models import Baseline3DCNN, e3nnCNN, UNet
 import argparse
 import json
 import yaml
