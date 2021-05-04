@@ -55,7 +55,7 @@ def train_tune(hparams, checkpoint_dir=None):
         progress_bar_refresh_rate=0,
         callbacks=[
             TuneReportCallback(
-                ['valid_dice', 'valid_loss'],
+                ['valid_f1', 'valid_dice', 'valid_loss'],
                 on="validation_end")
         ])
     trainer.fit(model, rdm)
@@ -68,7 +68,7 @@ def grid_search(hparams):
     
     reporter = CLIReporter(
         parameter_columns=hparams['param_cols'],
-        metric_columns=['valid_dice', 'valid_loss'])
+        metric_columns=['valid_f1', 'valid_dice', 'valid_loss'])
 
     ray.init()
     output_dir = Path(hparams['output_dir'], 'ray_tune')
@@ -76,7 +76,7 @@ def grid_search(hparams):
     analysis = tune.run(
         train_tune,
         resources_per_trial={ "cpu": 3, "gpu":hparams['gpus'] },
-        metric="valid_dice",
+        metric="valid_f1",
         mode="max",
         config=hparams,
         local_dir=output_dir,
@@ -113,7 +113,7 @@ if __name__ == '__main__':
     hparams['loss_type']  = tune.choice(['dice', 'dicebce', 'dicebceohnm'])
     hparams['kernel_size'] = tune.choice([3,5])
     hparams['skip_empty_patches'] = tune.choice([True, False])
-    hparams['lr'] = tune.loguniform(1e-5, 1e-1)
+    hparams['lr'] = tune.loguniform(1e-4, 1e-2)
 
     param_cols = ['loss_type', 'kernel_size', 'skip_empty_batches', 'lr']
     hparams['param_cols'] = param_cols
