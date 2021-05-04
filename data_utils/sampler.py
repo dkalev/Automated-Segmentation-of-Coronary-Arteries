@@ -4,11 +4,12 @@ from torch.utils.data import Sampler
 
 
 class ASOCASampler(Sampler):
-    def __init__(self, shapes, shuffle=False, oversample=False, alpha=1):
+    def __init__(self, shapes, shuffle=False, oversample=False, binary_weights=False, alpha=1):
         self.shapes = shapes
         self.gen = np.random.default_rng()
         self.shuffle = shuffle
         self.oversample = oversample
+        self.binary_weights = binary_weights
         self.alpha = alpha
 
     @property
@@ -24,11 +25,15 @@ class ASOCASampler(Sampler):
         return self._total_patches 
 
     def get_sample_weights(self, samples):
-        p = torch.ones_like(samples) / len(samples)
-        ratio = len(samples[samples==0]) / len(samples[samples==1]) * self.alpha
-        p[samples==1] *= ratio
-        p[samples==0] /= ratio
-        return p.tolist()
+        if self.binary_weights:
+            samples = torch.round(samples).int()
+            p = torch.ones_like(samples) / len(samples)
+            ratio = len(samples[samples==0]) / len(samples[samples==1]) * self.alpha
+            p[samples==1] *= ratio
+            p[samples==0] /= ratio
+            return p.tolist()
+        else:
+            return samples / np.sum(samples)
     
     def get_file_ids(self):
         file_ids = list(self.shapes.keys())
@@ -40,11 +45,11 @@ class ASOCASampler(Sampler):
     def get_patch_idxs(self, file_id):
         meta = self.shapes[file_id]
         n_patches = meta['n_patches']
-        if self.shuffle:
-            return self.gen.permutation(range(n_patches))
-        elif self.oversample:
-            weights = self.get_sample_weights(meta['contains_arteries'], alpha=10)
+        if self.oversample:
+            weights = self.get_sample_weights(meta['foreground_ratio'])
             return self.gen.choice(range(n_patches), n_patches, p=weights)
+        elif self.shuffle:
+            return self.gen.permutation(range(n_patches))
         else:
             return range(n_patches)
 

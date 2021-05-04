@@ -33,7 +33,7 @@ class DatasetBuilder():
 
         if not set(meta.keys()) == set(['data_clip_range', 'normalize', 'patch_size', 'stride', 'vol_meta']): return False
         if not set(meta['vol_meta'].keys()) == set([str(x) for x in range(40)]): return False
-        if not all([set(vol_meta.keys()) == set(['shape_orig', 'shape_cropped', 'shape_resized', 'split', 'orig_spacing', 'shape_patched', 'n_patches', 'contains_arteries', 'padding']) 
+        if not all([set(vol_meta.keys()) == set(['shape_orig', 'shape_cropped', 'shape_resized', 'split', 'orig_spacing', 'shape_patched', 'n_patches', 'foreground_ratio', 'padding']) 
             for vol_meta in meta['vol_meta'].values()
         ]): return False
 
@@ -102,7 +102,7 @@ class DatasetBuilder():
 
         mask_patches, _ = vol2patches(mask, self.patch_size, self.stride, padding)
 
-        contains_arteries = mask_patches.sum(dim=(1,2,3)) > 1
+        foreground_ratio = mask_patches.mean(dim=(1,2,3))
 
         np.save(Path(data_dir, 'masks', f'{vol_id}.npy'), mask_patches)
         del mask, mask_patches
@@ -137,7 +137,7 @@ class DatasetBuilder():
                 'orig_spacing': spacing.tolist(),
                 'shape_patched': patched_shape,
                 'n_patches': n_patches,
-                'contains_arteries': contains_arteries.tolist(),
+                'foreground_ratio': foreground_ratio.tolist(),
                 'padding': padding
                 })
 
