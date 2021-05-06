@@ -13,9 +13,11 @@ from .helpers import get_patch_padding, vol2patches
 
 
 class DatasetBuilder():
-    def __init__(self, logger, *args, num_workers=6, **kwargs):
+    def __init__(self, logger, *args, num_workers=6, valid_idxs=None, **kwargs):
         self.logger = logger
         self.num_workers = num_workers
+        self.valid_idxs = valid_idxs or [1, 9, 13, 19, 22, 28, 38, 39]
+        self.train_idxs = [ idx for idx in range(40) if idx not in self.valid_idxs ]
         super().__init__(*args, **kwargs)
 
     def is_valid(self):
@@ -85,13 +87,14 @@ class DatasetBuilder():
         return (data - data.mean()) / data.std()
 
     def preprocess(self, params):
-        vol_id, volume_path, mask_path, data_dir, split = params
+        vol_id, volume_path, mask_path, split = params
+        data_dir = Path(self.data_dir, split)
 
         mask, header = nrrd.read(mask_path, index_order='C')
 
         padding = get_patch_padding(mask.shape, self.patch_size, self.stride)
 
-        if self.crop_empty:
+        if split == 'train' and self.crop_empty:
             crop_mask = self.get_crop_mask(mask)
             mask = mask[crop_mask]
 
@@ -112,7 +115,7 @@ class DatasetBuilder():
         shape_orig = volume.shape
         shape_cropped = shape_orig
 
-        if self.crop_empty:
+        if split == 'train' and self.crop_empty:
             volume = volume[crop_mask]
             shape_cropped = volume.shape
 
@@ -154,14 +157,11 @@ class DatasetBuilder():
             for part in ['vols', 'masks']:
                 os.makedirs(Path(self.data_dir, split, part), exist_ok=True)
     
-        def get_folderpath(file_id, data_dir):
-            split = 'train' if file_id < 32 else 'valid'
-            return Path(data_dir, split), split
-
         paths = [ ( file_id,
                     Path(volume_path, f'{file_id}.nrrd'),
                     Path(mask_path, f'{file_id}.nrrd'),
-                    *get_folderpath(file_id, self.data_dir)) for file_id in range(40) ]
+                    'train' if file_id not in self.valid_idxs else 'valid'
+                    ) for file_id in range(40) ]
 
         with ProcessPoolExecutor(max_workers=self.num_workers) as exec:
             vol_meta = list(tqdm(
