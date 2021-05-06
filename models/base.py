@@ -91,6 +91,7 @@ class Base(pl.LightningModule):
             preds = torch.sigmoid(preds)
         else:
             preds = torch.sigmoid(preds[-1])
+        preds = preds.round()
         self.log(f'{split}_loss', loss.item())
         self.log(f'{split}_f1', self.f1(preds, targs).item())
         if split == 'valid':
