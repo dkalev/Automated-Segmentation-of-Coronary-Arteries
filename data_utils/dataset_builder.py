@@ -13,11 +13,34 @@ from .helpers import get_patch_padding, vol2patches
 
 
 class DatasetBuilder():
-    def __init__(self, logger, *args, num_workers=6, valid_idxs=None, **kwargs):
+    def __init__(self, logger, *args,
+                num_workers=6,
+                valid_idxs=None,
+                normalize=False,
+                data_clip_range=(0, 400),
+                rebuild=False,
+                resample_vols=True,
+                crop_empty=False, 
+                sourcepath='dataset/ASOCA2020Data.zip', **kwargs):
+
         self.logger = logger
         self.num_workers = num_workers
         self.valid_idxs = valid_idxs or [1, 9, 13, 19, 22, 28, 38, 39]
         self.train_idxs = [ idx for idx in range(40) if idx not in self.valid_idxs ]
+
+        if data_clip_range == 'percentile':
+            self.data_clip_range = data_clip_range
+        elif data_clip_range == 'None':
+            self.data_clip_range = None
+        else:
+            self.data_clip_range = list(data_clip_range)
+
+        self.normalize = normalize
+        self.rebuild = rebuild
+        self.resample_vols = resample_vols
+        self.crop_empty = crop_empty
+        self.sourcepath = sourcepath
+
         super().__init__(*args, **kwargs)
 
     def is_valid(self):
@@ -55,10 +78,9 @@ class DatasetBuilder():
         os.rmdir(data_dir)
 
     @staticmethod
-    def get_resampled_shape(volume, header):
-        spacing = np.diagonal(header['space directions'])[::-1]
+    def get_resampled_shape(volume, spacing):
         target_spacing = np.array([0.625, 0.3964845058, 0.3964845058 ])
-        return ((spacing / target_spacing) * volume.shape).round().astype(np.int64), spacing
+        return ((spacing / target_spacing) * volume.shape).round().astype(np.int64)
     
     def get_crop_mask(self, data):
         nonzero = np.argwhere(data)
@@ -77,14 +99,24 @@ class DatasetBuilder():
             slice(top_left[2], bottom_right[2]+1),
         )
         
-    def normalize_data(self, data):
-        if self.data_clip_range is not None:
-            lb, ub = self.data_clip_range
-            mask = (data > lb) & (data < ub) 
-            data = np.clip(data, lb, ub)
-            data = data[mask]
+    def get_clip_bounds(self, data, mask):
+        if self.data_clip_range == 'percentile':
+            return np.percentile(data[mask==1], 5), np.percentile(data[mask==1], 99.5)
+        else:
+            return self.data_clip_range
 
-        return (data - data.mean()) / data.std()
+    def normalize_data(self, data, mask):
+        if self.data_clip_range is not None:
+            lb, ub = self.get_clip_bounds(data, mask)
+            mask = (data > lb) & (data < ub) 
+            mean = data[mask].mean()
+            std  = data[mask].std()
+            data = np.clip(data, lb, ub)
+        else:
+            mean = data.mean()
+            std  = data.std()
+
+        return (data - mean) / std
 
     def preprocess(self, params):
         vol_id, volume_path, mask_path, split = params
@@ -98,8 +130,9 @@ class DatasetBuilder():
             crop_mask = self.get_crop_mask(mask)
             mask = mask[crop_mask]
 
+        spacing = np.diagonal(header['space directions'])[::-1]
         if self.resample_vols:
-            new_shape, spacing = self.get_resampled_shape(mask, header)
+            new_shape = self.get_resampled_shape(mask, spacing)
             dtype = mask.dtype
             mask = resize(mask.astype(float), new_shape, order=0, mode='constant', cval=0, clip=True, anti_aliasing=False).astype(dtype)
 
@@ -108,7 +141,7 @@ class DatasetBuilder():
         foreground_ratio = mask_patches.mean(dim=(1,2,3))
 
         np.save(Path(data_dir, 'masks', f'{vol_id}.npy'), mask_patches)
-        del mask, mask_patches
+        del mask
 
         volume, _ = nrrd.read(volume_path, index_order='C')
 
@@ -125,17 +158,22 @@ class DatasetBuilder():
         volume_patches, patched_shape = vol2patches(volume, self.patch_size, self.stride, padding, pad_value=-1000) # -1000 corresponds to air in HU units
 
         if self.normalize:
-            volume_patches = self.normalize_data(volume_patches)
+            volume_patches = self.normalize_data(volume_patches, mask_patches)
 
         n_patches = volume_patches.shape[0]
 
         np.save(Path(data_dir, 'vols', f'{vol_id}.npy'), volume_patches)
         del volume, volume_patches
 
+        if not self.resample_vols:
+            shape_resized = shape_cropped
+        else:
+            shape_resized = new_shape.tolist()
+
         return ( vol_id, {
                 'shape_orig': shape_orig,
                 'shape_cropped': shape_cropped,
-                'shape_resized': new_shape.tolist(),
+                'shape_resized': shape_resized,
                 'split': split,
                 'orig_spacing': spacing.tolist(),
                 'shape_patched': patched_shape,
@@ -164,7 +202,7 @@ class DatasetBuilder():
                     ) for file_id in range(40) ]
 
         with ProcessPoolExecutor(max_workers=self.num_workers) as exec:
-            vol_meta = list(tqdm(
+           vol_meta = list(tqdm(
                 exec.map(self.preprocess, paths),
                 total=len(paths)))
         

@@ -23,14 +23,8 @@ class AsocaDataModule(DatasetBuilder, LightningDataModule):
                 batch_size=1,
                 patch_size=32,
                 patch_stride=None,
-                normalize=False,
-                data_clip_range=(0, 400),
-                rebuild=False,
-                resample_vols=True,
-                crop_empty=False,
                 oversample=False,
                 distributed=False,
-                sourcepath='dataset/ASOCA2020Data.zip',
                 data_dir='dataset/processed', **kwargs):
         super().__init__(logger, *args, **kwargs)
         self.batch_size = batch_size
@@ -43,14 +37,7 @@ class AsocaDataModule(DatasetBuilder, LightningDataModule):
         elif isinstance(patch_stride, int):
             patch_stride = np.array([patch_stride, patch_stride, patch_stride])
         self.stride = patch_stride
-        self.data_clip_range = list(data_clip_range) if data_clip_range != 'None' else None
-
-        self.normalize = normalize
-        self.rebuild = rebuild
-        self.resample_vols = resample_vols
-        self.crop_empty = crop_empty
         self.oversample = oversample
-        self.sourcepath = sourcepath
         self.data_dir = data_dir
         self.distributed = distributed
 
