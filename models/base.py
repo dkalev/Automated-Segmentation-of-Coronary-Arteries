@@ -21,10 +21,16 @@ class Base(pl.LightningModule):
             return nn.BCEWithLogitsLoss()
         elif name == 'dice':
             return DiceLoss()
+        elif name == 'gdice':
+            return DiceLoss(generalized=True)
         elif name == 'dicebce':
             return DiceBCELoss()
+        elif name == 'gdicebce':
+            return DiceBCELoss(dice_kwargs={'generalized':True})
         elif name == 'dicebceohnm':
             return DiceBCE_OHNMLoss()
+        elif name == 'gdicebceohnm':
+            return DiceBCE_OHNMLoss(dice_kwargs={'generalized':True})
         else:
             raise ValueError(f'Unknown loss type: {name}')
 
