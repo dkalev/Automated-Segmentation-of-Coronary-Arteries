@@ -134,3 +134,4 @@ dataset/
 *logs*/**/*
 out/**/*
 ray_tune/**/*
+e3cnn-distribution/**/*
