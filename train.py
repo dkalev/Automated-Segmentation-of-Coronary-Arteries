@@ -1,11 +1,13 @@
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import TensorBoardLogger
 from data_utils import AsocaDataModule
-from models import Baseline3DCNN, e3nnCNN, UNet
+from models import Baseline3DCNN, UNet
+from collections import defaultdict
 import argparse
 import json
 import yaml
 import time
+import wandb
 
 import warnings
 warnings.filterwarnings('ignore', 'Setting attributes on ParameterDict is not supported')
@@ -22,10 +24,34 @@ def get_logger(hparams):
         'train_loss': float('inf'),
         'valid_dice': 0,
         'valid_f1': 0,
+        'valid_iou': 0,
         'valid_loss': float('inf'),
     })
 
     return logger
+
+def combine_config(wandb_config, hparams):
+    if len(wandb_config.keys()) == 0: return hparams
+
+    res = defaultdict(dict)
+
+    for key, val in wandb_config.items():
+        group, param = key.split('.')
+        res[group][param] = val
+
+    for group in hparams:
+        if not isinstance(hparams[group], dict):
+            res[group] = hparams[group]
+            continue
+        for key, val in hparams[group].items():
+            if key not in res[group]:
+                res[group][key] = val
+
+    if not res['dataset']['normalize']:
+        res['dataset']['data_clip_range'] = 'None'
+
+    return dict(res)
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Training on ASOCA dataset')
@@ -35,7 +61,11 @@ if __name__ == '__main__':
 
     with open(hparams['config_path'], 'r') as f:
         hparams = { **hparams, **yaml.safe_load(f) }
-        print(json.dumps(hparams, indent=2))
+    
+    wandb.init()
+
+    hparams = combine_config(wandb.config, hparams)
+    print(json.dumps(hparams, indent=2))
 
     tparams = { 'debug': hparams['debug'], **hparams['train']}
 
@@ -49,8 +79,6 @@ if __name__ == '__main__':
         model = Baseline3DCNN(**kwargs)
     elif tparams['model'] == 'unet':
         model = UNet(**{**kwargs, **tparams['unet']})
-    elif tparams['model'] == 'e3nn_cnn':
-        model = e3nnCNN(**kwargs)
 
     trainer_kwargs = {
         'gpus': tparams['gpus'],

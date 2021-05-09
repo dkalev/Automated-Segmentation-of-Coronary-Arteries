@@ -1,9 +1,10 @@
 import numpy as np
 import torch
 from scipy.spatial import cKDTree
-from sklearn.metrics import roc_auc_score
+from torchmetrics.functional import auroc
 
 def dice_score(pred, targ, eps=1e-10):
+    targ = targ.float()
     intersection = torch.einsum('bcwhd,bcwhd->bc', pred, targ)
     union = torch.einsum('bcwhd->bc', pred) + torch.einsum('bcwhd->bc', targ)
     return torch.mean((2. * intersection + eps) / ( union + eps ))
@@ -24,5 +25,5 @@ def roc_auc(preds, targs):
     targs_numpy = targs.cpu().flatten().numpy().astype(int)
     if targs_numpy.sum() > 0:
         preds_numpy = preds.cpu().flatten()
-        return roc_auc_score(targs_numpy, preds_numpy)
+        return auroc(targs_numpy, preds_numpy)
     return 0.5

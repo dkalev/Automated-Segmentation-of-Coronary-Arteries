@@ -3,17 +3,24 @@ import torch.nn as nn
 from torch.optim import Adam
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 import pytorch_lightning as pl
+import torchmetrics
 from loss import DiceBCELoss, DiceLoss, DiceBCE_OHNMLoss
-from metrics import dice_score, roc_auc
+from metrics import dice_score
+import wandb
 
 
 class Base(pl.LightningModule):
     def __init__(self, *args, lr=1e-3, loss_type='dice', skip_empty_patches=False, **kwargs):
         super().__init__(*args, **kwargs)
         self.crit = self.get_loss_func(loss_type)
-        self.f1 = pl.metrics.F1()
+        self.f1 = torchmetrics.F1()
+        self.iou = torchmetrics.IoU(num_classes=2)
         self.lr = lr
         self.skip_empty_patches = skip_empty_patches
+    
+    def log(self, name: str, value, *args, **kwargs):
+        wandb.log({name: value}, commit=False)
+        return super().log(name, value, *args, **kwargs)
 
     @staticmethod
     def get_loss_func(name):
@@ -101,8 +108,10 @@ class Base(pl.LightningModule):
         self.log(f'{split}_loss', loss.item())
         self.log(f'{split}_f1', self.f1(preds, targs).item())
         if split == 'valid':
-            self.log(f'valid_dice', dice_score(preds, targs), prog_bar=True)
-            self.log(f'valid_auc', roc_auc(preds, targs))
+            self.log(f'valid_dice', dice_score(preds, targs).item(), prog_bar=True)
+            self.log(f'valid_iou', self.iou(preds, targs).item(), prog_bar=True)
+        
+        wandb.log({})
 
     def configure_optimizers(self):
         optimizer = Adam(self.parameters(), lr=self.lr)
