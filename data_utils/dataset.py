@@ -43,6 +43,6 @@ class AsocaDataset(Dataset):
         x = np.load(Path(self.ds_path, 'vols', f'{file_id}.npy'))
         y = np.load(Path(self.ds_path, 'masks', f'{file_id}.npy'))
         x, y = x[idx], y[idx]
-        x, y = torch.tensor(x), torch.tensor(y)
+        x, y = torch.tensor(x), torch.LongTensor(y)
         if len(x.shape) == 3: x, y = x.unsqueeze(0), y.unsqueeze(0)
         return x, y

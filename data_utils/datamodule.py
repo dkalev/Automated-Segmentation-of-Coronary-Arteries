@@ -44,6 +44,8 @@ class AsocaDataModule(DatasetBuilder, LightningDataModule):
     def prepare_data(self):
         if not self.is_valid():
             self.logger.info(f'Corrupted dataset. Building from scratch.')
+        elif self.is_config_updated():
+            self.logger.info(f'Changed config. Building from scratch.')
         elif self.rebuild:
             self.logger.info(f'Rebuild option set to true. Building from scratch.')
         else:

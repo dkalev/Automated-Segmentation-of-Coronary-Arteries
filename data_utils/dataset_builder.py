@@ -56,13 +56,27 @@ class DatasetBuilder():
         except:
             return False
 
-        if not set(meta.keys()) == set(['data_clip_range', 'normalize', 'patch_size', 'stride', 'vol_meta']): return False
+        if not set(meta.keys()) == set([
+            'data_clip_range',
+            'normalize',
+            'patch_size',
+            'stride',
+            'crop_empty',
+            'resample_vols',
+            'vol_meta'
+            ]): return False
         if not set(meta['vol_meta'].keys()) == set([str(x) for x in range(40)]): return False
         if not all([set(vol_meta.keys()) == set(['shape_orig', 'shape_cropped', 'shape_resized', 'split', 'orig_spacing', 'shape_patched', 'n_patches', 'foreground_ratio', 'padding']) 
             for vol_meta in meta['vol_meta'].values()
         ]): return False
 
         return True
+
+    def is_config_updated(self):
+        with open(Path(self.data_dir, 'dataset.json'), 'r') as f:
+            meta = json.load(f)
+        return not all([ getattr(self, key) == meta[key] for key in meta if hasattr(self, key)])
+
 
     def extract_files(self, subdirs):
         # clean up previous data
@@ -188,6 +202,8 @@ class DatasetBuilder():
             'stride': [ int(x) for x in self.stride],
             'normalize': self.normalize,
             'data_clip_range': self.data_clip_range,
+            'resample_vols': self.resample_vols,
+            'crop_empty': self.crop_empty,
         })
 
         for split in ['train', 'valid']:
