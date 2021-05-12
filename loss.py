@@ -37,9 +37,7 @@ class DiceLoss(BaseLoss):
 
 
 class CombinedLoss(BaseLoss):
-    def __init__(self, *args, dice_kwargs=None, **kwargs):
-        normalize = 'normalize' in kwargs and kwargs['normalize']
-        if normalize: del kwargs['normalize'] # don't pass to base class to avoid normalizing twice
+    def __init__(self, *args, dice_kwargs=None, normalize=True, **kwargs):
         super().__init__(*args, **kwargs)
 
         if normalize:
@@ -82,11 +80,29 @@ class DiceBCE_OHNMLoss(CombinedLoss):
             return int(self.default_neg_perc * n_neg)
         return min(n_pos * self.ohnm_ratio, n_neg)
 
+    @staticmethod
+    def pad_loss_batch(idxs, targs):
+        # the subset of indexes selected by ohnm are later on passed to the dice loss
+        # to ensure it is complatible we have to check if the number of indexes is 
+        # divisible by batch_size * num_classes and if not to fill it up with additional indexes
+        n_needed = len(idxs) % (targs.shape[0] * targs.shape[1])
+        if n_needed == 0: return idxs
+
+        # trick compute set difference while staying on cuda
+        combined = torch.cat([torch.arange(targs.numel(), device=targs.device), idxs])
+        uniques, counts = combined.unique(return_counts=True)
+        remaining_idxs = uniques[counts == 1]
+
+        extra_idxs = remaining_idxs.float().multinomial(n_needed).long()
+        return torch.cat([idxs, extra_idxs])
+
     def get_idxs(self, losses, targs):
         n_hns = self.get_num_hns(targs)
         _, hns_idxs = losses[targs==0].flatten().topk(n_hns)
         pos_idxs = torch.nonzero(targs.flatten()==1)
-        return torch.cat([hns_idxs.flatten(), pos_idxs.flatten()])
+        idxs = torch.cat([hns_idxs.flatten(), pos_idxs.flatten()])
+        idxs = self.pad_loss_batch(idxs, targs)
+        return idxs
 
     @staticmethod
     def get_samples(data, idxs):
