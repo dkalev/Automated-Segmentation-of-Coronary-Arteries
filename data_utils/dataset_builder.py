@@ -77,7 +77,6 @@ class DatasetBuilder():
             meta = json.load(f)
         return not all([ getattr(self, key) == meta[key] for key in meta if hasattr(self, key)])
 
-
     def extract_files(self, subdirs):
         # clean up previous data
         for subdir in subdirs:

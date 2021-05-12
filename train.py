@@ -3,6 +3,7 @@ from pytorch_lightning.loggers import TensorBoardLogger
 from data_utils import AsocaDataModule
 from models import Baseline3DCNN, UNet
 from collections import defaultdict
+import numpy as np
 import argparse
 import json
 import yaml
@@ -49,6 +50,9 @@ def combine_config(wandb_config, hparams):
 
     if not res['dataset']['normalize']:
         res['dataset']['data_clip_range'] = 'None'
+        wandb_config.update({'dataset.data_clip_range': 'None'})
+    
+    res['dataset']['patch_stride'] = (np.array(res['dataset']['patch_size']) - 20).tolist()
 
     return dict(res)
 
@@ -62,7 +66,7 @@ if __name__ == '__main__':
     with open(hparams['config_path'], 'r') as f:
         hparams = { **hparams, **yaml.safe_load(f) }
     
-    wandb.init()
+    wandb.init(allow_val_change=True)
 
     hparams = combine_config(wandb.config, hparams)
     print(json.dumps(hparams, indent=2))

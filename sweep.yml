@@ -1,9 +1,14 @@
 program: train.py
 method: bayes
 metric:
-    name: valid_dice
-    goal: maximize
+    name: valid_loss
+    goal: minimize
 parameters:
+    dataset.patch_size:
+        values:
+            - [64, 64, 64]
+            - [128, 128, 128]
+            - [80, 192, 160]
     dataset.normalize:
         values: [ true, false ]
     dataset.data_clip_range:
