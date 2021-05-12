@@ -9,6 +9,7 @@ class ASOCASampler(Sampler):
                 oversample=False,
                 binary_weights=False,
                 perc_per_epoch=0.25,
+                oversample_coef=100,
                 alpha=1):
         self.shapes = shapes
         self.gen = np.random.default_rng()
@@ -16,6 +17,7 @@ class ASOCASampler(Sampler):
         self.oversample = oversample
         self.binary_weights = binary_weights
         self.perc_per_epoch = perc_per_epoch
+        self.oversample_coef = oversample_coef
         self.alpha = alpha
 
     @property
@@ -41,7 +43,7 @@ class ASOCASampler(Sampler):
             return p
         else:
             samples = np.array(samples)
-            samples = samples * 100 + samples.max()
+            samples = samples * self.oversample_coef + samples.max()
             return samples / np.sum(samples)
     
     def get_file_ids(self):

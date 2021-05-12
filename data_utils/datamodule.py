@@ -25,6 +25,8 @@ class AsocaDataModule(DatasetBuilder, LightningDataModule):
                 patch_stride=None,
                 oversample=False,
                 distributed=False,
+                perc_per_epoch=0.25,
+                oversample_coef=100,
                 data_dir='dataset/processed', **kwargs):
         super().__init__(logger, *args, **kwargs)
         self.batch_size = batch_size
@@ -39,6 +41,8 @@ class AsocaDataModule(DatasetBuilder, LightningDataModule):
         self.stride = patch_stride
         self.oversample = oversample
         self.data_dir = data_dir
+        self.perc_per_epoch = perc_per_epoch
+        self.oversample_coef = oversample_coef
         self.distributed = distributed
 
     def prepare_data(self):
@@ -70,21 +74,25 @@ class AsocaDataModule(DatasetBuilder, LightningDataModule):
 
         logger.info('Done')
     
-    def train_dataloader(self, batch_size=None):
+    def train_dataloader(self, batch_size=None, num_workers=12):
         if batch_size is None: batch_size = self.batch_size
         train_split = AsocaDataset(ds_path=self.data_dir, split='train')
-        sampler = ASOCASampler(train_split.vol_meta, shuffle=True, oversample=self.oversample)
+        sampler = ASOCASampler(train_split.vol_meta,
+                                shuffle=True,
+                                oversample=self.oversample,
+                                perc_per_epoch=self.perc_per_epoch,
+                                oversample_coef=self.oversample_coef)
         if self.distributed:
             sampler = DistributedSamplerWrapper(sampler=sampler)
-        return DataLoader(train_split, sampler=sampler, batch_size=batch_size, num_workers=12, pin_memory=True)
+        return DataLoader(train_split, sampler=sampler, batch_size=batch_size, num_workers=num_workers, pin_memory=True)
 
-    def val_dataloader(self, batch_size=None):
+    def val_dataloader(self, batch_size=None, num_workers=12):
         if batch_size is None: batch_size = self.batch_size
         valid_split = AsocaDataset(ds_path=self.data_dir, split='valid')
         sampler = ASOCASampler(valid_split.vol_meta)
         if self.distributed:
             sampler = DistributedSamplerWrapper(sampler=sampler)
-        return DataLoader(valid_split, sampler=sampler, batch_size=batch_size, num_workers=12, pin_memory=True)
+        return DataLoader(valid_split, sampler=sampler, batch_size=batch_size, num_workers=num_workers, pin_memory=True)
 
     def volume_dataloader(self, file_id, batch_size=None):
         pass
