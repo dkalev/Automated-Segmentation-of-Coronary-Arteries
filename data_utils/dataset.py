@@ -40,8 +40,8 @@ class AsocaDataset(Dataset):
 
     def __getitem__(self, index):
         file_id, idx = self.split_index(index)
-        x = np.load(Path(self.ds_path, 'vols', f'{file_id}.npy'))
-        y = np.load(Path(self.ds_path, 'masks', f'{file_id}.npy'))
+        x = np.load(Path(self.ds_path, 'vols', f'{file_id}.npy'), mmap_mode='r+')
+        y = np.load(Path(self.ds_path, 'masks', f'{file_id}.npy'), mmap_mode='r+')
         x, y = x[idx], y[idx]
         x, y = torch.tensor(x), torch.LongTensor(y)
         if len(x.shape) == 3: x, y = x.unsqueeze(0), y.unsqueeze(0)
