@@ -55,8 +55,8 @@ class DiceBCELoss(CombinedLoss):
         
     @staticmethod
     def get_weight(targs):
-        ratio = torch.sum(targs == 0) / torch.sum(targs == 1)
-        weight = torch.ones_like(targs)
+        ratio = (torch.sum(targs == 0) / torch.sum(targs == 1)).type_as(targs)
+        weight = torch.ones_like(targs, dtype=targs.dtype)
         weight[targs==1] = ratio
         return weight
 
