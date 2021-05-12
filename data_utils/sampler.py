@@ -7,15 +7,15 @@ class ASOCASampler(Sampler):
     def __init__(self, shapes,
                 shuffle=False,
                 oversample=False,
-                patches_per_epoch=250,
                 binary_weights=False,
+                perc_per_epoch=0.25,
                 alpha=1):
         self.shapes = shapes
         self.gen = np.random.default_rng()
         self.shuffle = shuffle
         self.oversample = oversample
         self.binary_weights = binary_weights
-        self.patches_per_epoch = patches_per_epoch
+        self.perc_per_epoch = perc_per_epoch
         self.alpha = alpha
 
     @property
@@ -27,7 +27,7 @@ class ASOCASampler(Sampler):
     @property
     def total_patches(self):
         if not hasattr(self, '_total_patches'):
-            self._total_patches = sum([ v['n_patches'] for v in self.shapes.values() ])
+            self._total_patches = sum([ int(v['n_patches'] * self.perc_per_epoch) for v in self.shapes.values() ])
         return self._total_patches 
 
     def get_sample_weights(self, samples):
@@ -40,7 +40,8 @@ class ASOCASampler(Sampler):
             p[samples==0] /= ratio
             return p
         else:
-            samples = np.array(samples) + 1
+            samples = np.array(samples)
+            samples = samples * 100 + samples.max()
             return samples / np.sum(samples)
     
     def get_file_ids(self):
@@ -55,8 +56,7 @@ class ASOCASampler(Sampler):
         n_patches = meta['n_patches']
         if self.oversample:
             weights = self.get_sample_weights(meta['foreground_ratio'])
-            n_files = len(self.get_file_ids()) 
-            return self.gen.choice(range(n_patches), self.patches_per_epoch // n_files, p=weights)
+            return self.gen.choice(range(n_patches), int(n_patches * self.perc_per_epoch), p=weights)
         elif self.shuffle:
             return self.gen.permutation(range(n_patches))
         else:
@@ -68,7 +68,4 @@ class ASOCASampler(Sampler):
                 yield file_id * self.max_patches + index
                 
     def __len__(self):
-        if self.oversample:
-            return self.patches_per_epoch
-        else:
-            return self.total_patches
+        return self.total_patches
