@@ -92,6 +92,7 @@ if __name__ == '__main__':
         'checkpoint_callback': not tparams['debug'],
         'logger': get_logger(tparams),
         'auto_lr_find': tparams['auto_lr_find'],
+        'gradient_clip_val': 12,
     }
 
     trainer = pl.Trainer(**trainer_kwargs)
