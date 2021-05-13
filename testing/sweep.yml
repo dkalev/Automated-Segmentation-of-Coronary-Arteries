@@ -1,0 +1,21 @@
+program: train.py
+method: bayes
+metric:
+    name: valid_loss
+    goal: minimize
+parameters:
+    dataset.oversample_coef:
+        values: [10, 100, 1000]
+    train.model:
+        values: [ cnn, unet ]
+    train.lr: 
+        min: 0.0001
+        max: 0.1
+    train.loss_type:
+        values: ['dice', 'bce', 'dicebce', 'dicebceohnm', 'gdice', 'gdicebce', 'gdicebceohnm']
+    train.n_epochs:
+        value: 10
+command:
+  - ${env}
+  - ${interpreter}
+  - ${program}
