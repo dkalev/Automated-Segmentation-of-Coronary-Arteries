@@ -137,3 +137,5 @@ ray_tune/**/*
 e3cnn-distribution/**/*
 wandb/**/*
 testing/wandb
+config/*.yml
+jobs/*.sh

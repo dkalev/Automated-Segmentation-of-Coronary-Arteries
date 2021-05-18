@@ -1,0 +1,24 @@
+dataset:
+    patch_size:  [128, 128, 128] # [80, 192, 160]
+    patch_stride: [108, 108, 108] # [70, 182, 150]
+    normalize: True
+    data_clip_range: None # None, percentile, [0, 400]
+    num_workers: 4
+    resample_vols: false
+    oversample: false
+    oversample_coef: 100
+    crop_empty: true
+train:
+    model: cnn # one of [cnn, unet, e3nn_cnn]
+    gpus: 1
+    n_epochs: 10
+    batch_size: 4
+    lr: 0.001
+    auto_lr_find: false
+    loss_type: dice # one of [dice, bce, dicebce, dicebceohnm]
+    fully_conv: true
+    skip_empty_patches: false
+    kernel_size: 3
+    # model specific params
+    unet:
+        deep_supervision: false
