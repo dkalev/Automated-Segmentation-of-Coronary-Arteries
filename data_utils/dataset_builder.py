@@ -66,7 +66,7 @@ class DatasetBuilder():
             'vol_meta'
             ]): return False
         if not set(meta['vol_meta'].keys()) == set([str(x) for x in range(40)]): return False
-        if not all([set(vol_meta.keys()) == set(['shape_orig', 'shape_cropped', 'shape_resized', 'split', 'orig_spacing', 'shape_patched', 'n_patches', 'foreground_ratio', 'padding']) 
+        if not all([set(vol_meta.keys()) == set(['shape_orig', 'shape_cropped', 'shape_resampled', 'split', 'orig_spacing', 'shape_patched', 'n_patches', 'foreground_ratio', 'padding']) 
             for vol_meta in meta['vol_meta'].values()
         ]): return False
 
@@ -132,7 +132,7 @@ class DatasetBuilder():
         return (data - mean) / std
 
     def preprocess(self, params):
-        vol_id, volume_path, mask_path, split = params
+        vol_id, volume_path, mask_path, heart_mask_path, split = params
         data_dir = Path(self.data_dir, split)
 
         mask, header = nrrd.read(mask_path, index_order='C')
@@ -145,9 +145,9 @@ class DatasetBuilder():
 
         spacing = np.diagonal(header['space directions'])[::-1]
         if self.resample_vols:
-            new_shape = self.get_resampled_shape(mask, spacing)
+            shape_resampled = self.get_resampled_shape(mask, spacing)
             dtype = mask.dtype
-            mask = resize(mask.astype(float), new_shape, order=0, mode='constant', cval=0, clip=True, anti_aliasing=False).astype(dtype)
+            mask = resize(mask.astype(float), shape_resampled, order=0, mode='constant', cval=0, clip=True, anti_aliasing=False).astype(dtype)
 
         mask_patches, _ = vol2patches(mask, self.patch_size, self.stride, padding)
 
@@ -155,6 +155,17 @@ class DatasetBuilder():
 
         np.save(Path(data_dir, 'masks', f'{vol_id}.npy'), mask_patches)
         del mask
+
+        heart_mask, _ = nrrd.read(heart_mask_path, index_order='C')
+
+        if self.resample_vols:
+            dtype = heart_mask.dtype
+            heart_mask = resize(heart_mask.astype(float), shape_resampled, order=0, mode='constant', cval=0, clip=True, anti_aliasing=False).astype(dtype)
+
+        heart_mask_patches, _ = vol2patches(heart_mask, self.patch_size, self.stride, padding)
+
+        np.save(Path(data_dir, 'heart_masks', f'{vol_id}.npy'), heart_mask_patches)
+        del heart_mask
 
         volume, _ = nrrd.read(volume_path, index_order='C')
 
@@ -166,7 +177,7 @@ class DatasetBuilder():
             shape_cropped = volume.shape
 
         if self.resample_vols:
-            volume = resize(volume, new_shape, order=1, preserve_range=True)
+            volume = resize(volume, shape_resampled, order=1, preserve_range=True)
 
         volume_patches, patched_shape = vol2patches(volume, self.patch_size, self.stride, padding, pad_value=-1000) # -1000 corresponds to air in HU units
 
@@ -179,14 +190,14 @@ class DatasetBuilder():
         del volume, volume_patches
 
         if not self.resample_vols:
-            shape_resized = shape_cropped
+            shape_resampled = shape_cropped
         else:
-            shape_resized = new_shape.tolist()
+            shape_resampled = shape_resampled.tolist()
 
         return ( vol_id, {
                 'shape_orig': shape_orig,
                 'shape_cropped': shape_cropped,
-                'shape_resized': shape_resized,
+                'shape_resampled': shape_resampled,
                 'split': split,
                 'orig_spacing': spacing.tolist(),
                 'shape_patched': patched_shape,
@@ -195,7 +206,7 @@ class DatasetBuilder():
                 'padding': padding
                 })
 
-    def build_dataset(self, volume_path, mask_path):
+    def build_dataset(self, volume_path, mask_path, heart_mask_path):
         meta = OrderedDict({
             'patch_size': [ int(x) for x in self.patch_size ],
             'stride': [ int(x) for x in self.stride],
@@ -207,12 +218,13 @@ class DatasetBuilder():
 
         for split in ['train', 'valid']:
             os.makedirs(Path(self.data_dir, split), exist_ok=True)
-            for part in ['vols', 'masks']:
+            for part in ['vols', 'masks', 'heart_masks']:
                 os.makedirs(Path(self.data_dir, split, part), exist_ok=True)
     
         paths = [ ( file_id,
                     Path(volume_path, f'{file_id}.nrrd'),
                     Path(mask_path, f'{file_id}.nrrd'),
+                    Path(heart_mask_path, f'{file_id}.nrrd'),
                     'train' if file_id not in self.valid_idxs else 'valid'
                     ) for file_id in range(40) ]
 

@@ -10,39 +10,50 @@ class AsocaDataset(Dataset):
         self.ds_path = Path(ds_path, split)
         with open(Path(ds_path, 'dataset.json'), 'r') as f:
             meta = json.load(f)
-        self.vol_meta = { int(key): val for key, val in meta['vol_meta'].items() if val['split'] == split }
-        patch_meta = [ m['n_patches'] for m in self.vol_meta.values() ]
-        self.max_patches = np.max(patch_meta)
-        self.len = np.sum(patch_meta)
+        self.vol_meta = { int(k): v for k, v in meta['vol_meta'].items() if v['split'] == split }
+    
+    @property
+    def max_patches(self):
+        if not hasattr(self, '_max_patches'):
+            self._max_patches = np.max([ m['n_patches'] for m in self.vol_meta.values() ])
+        return self._max_patches
+
+    @property
+    def total_patches(self):
+        if not hasattr(self, '_total_patches'):
+            self._total_patches = np.sum([ m['n_patches'] for m in self.vol_meta.values() ])
+        return self._total_patches
 
     def __len__(self):
-        return self.len
+        return self.total_patches
 
     def split_index(self, index):
         if isinstance(index, int) or isinstance(index, np.int64):
+            if index < 0: index = self.len + index
             file_id, idx = index // self.max_patches, index % self.max_patches
         elif isinstance(index, slice):
             file_id = index.start // self.max_patches
             idx = slice(index.start % self.max_patches, index.stop % self.max_patches)
         return file_id, idx
     
-    def cur_vol(self, file_id):
-        if not hasattr(self, '_cur_vol') or self._cur_vol_id != file_id:
-            self._cur_vol = np.load(Path(self.ds_path, 'vols', f'{file_id}.npy'))
-            self._cur_vol_id = file_id
-        return self._cur_vol
-
-    def cur_mask(self, file_id):
-        if not hasattr(self, '_cur_mask') or self._cur_mask_id != file_id:
-            self._cur_mask = np.load(Path(self.ds_path, 'masks', f'{file_id}.npy'))
-            self._cur_mask_id = file_id
-        return self._cur_mask
-
     def __getitem__(self, index):
         file_id, idx = self.split_index(index)
         x = np.load(Path(self.ds_path, 'vols', f'{file_id}.npy'), mmap_mode='r+')
         y = np.load(Path(self.ds_path, 'masks', f'{file_id}.npy'), mmap_mode='r+')
-        x, y = x[idx], y[idx]
-        x, y = torch.tensor(x), torch.LongTensor(y)
-        if len(x.shape) == 3: x, y = x.unsqueeze(0), y.unsqueeze(0)
-        return x, y
+        hm = np.load(Path(self.ds_path, 'heart_masks', f'{file_id}.npy'), mmap_mode='r+')
+        x, y, hm = x[idx], y[idx], hm[idx]
+        x, y, hm = torch.tensor(x), torch.LongTensor(y), torch.tensor(hm)
+        if len(x.shape) == 3: x, y, hm = x.unsqueeze(0), y.unsqueeze(0), hm.unsqueeze(0)
+        return x, y, hm
+
+class AsocaVolumeDataset(AsocaDataset):
+    def __init__(self, *args, vol_id, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.vol_meta = { vol_id: self.vol_meta[vol_id] }
+
+    def get_vol_meta(self, vol_id):
+        return self.vol_meta[int(vol_id)]
+
+    def __getitem__(self, index):
+        x, _, _ =  super().__getitem__(index)
+        return x

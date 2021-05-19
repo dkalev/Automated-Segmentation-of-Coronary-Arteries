@@ -6,7 +6,7 @@ from pathlib import Path
 from torch.utils.data import DataLoader
 from pytorch_lightning import LightningDataModule
 
-from .dataset import AsocaDataset, AsocaDataset
+from .dataset import AsocaDataset, AsocaVolumeDataset
 from .dataset_builder import DatasetBuilder
 from .sampler import ASOCASampler
 
@@ -67,7 +67,8 @@ class AsocaDataModule(DatasetBuilder, LightningDataModule):
         logger.info('Building dataset')
         volume_path = Path(self.data_dir, 'Train')
         mask_path = Path(self.data_dir, 'Train_Masks')
-        self.build_dataset(volume_path, mask_path)
+        heart_mask_path = Path(self.data_dir, 'Train_WH_Masks')
+        self.build_dataset(volume_path, mask_path, heart_mask_path)
 
         for subdir in subdirs:
             shutil.rmtree(Path(self.data_dir, subdir))
@@ -94,14 +95,8 @@ class AsocaDataModule(DatasetBuilder, LightningDataModule):
             sampler = DistributedSamplerWrapper(sampler=sampler)
         return DataLoader(valid_split, sampler=sampler, batch_size=batch_size, num_workers=num_workers, pin_memory=True)
 
-    def volume_dataloader(self, file_id, batch_size=None):
-        pass
-        # FIXME update to work with new dataset
-        # if batch_size is None: batch_size = self.batch_size
-        # ds = AsocaDataset(self.datapath, file_id=file_id)
-        # meta = {
-        #     'shape_orig': ds.shape_orig,
-        #     'shape_patched': ds.shape_patched,
-        #     'n_patches': len(ds),
-        # }
-        # return DataLoader(ds, batch_size=batch_size, num_workers=12, pin_memory=True), meta
+    def volume_dataloader(self, vol_id, batch_size=None):
+        if batch_size is None: batch_size = self.batch_size
+        ds = AsocaVolumeDataset(self.data_dir, vol_id=vol_id)
+        meta = ds.get_vol_meta(vol_id)
+        return DataLoader(ds, batch_size=batch_size, num_workers=12, pin_memory=True), meta

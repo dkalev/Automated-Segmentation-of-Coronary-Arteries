@@ -53,9 +53,25 @@ def patches2vol(patches, patch_size, stride, padding=None):
         
     return p
 
-def get_volume_pred(patches, vol_meta, stride):
-    out_shape = vol_meta['shape_patched'][:3] + patches.shape[1:]
-    res = patches2vol(patches.view(out_shape), stride, stride)
+def get_volume_pred(patches, vol_meta, patch_size, stride, normalize=True):
+    to_numpy = False
+    if not isinstance(patches, torch.Tensor):
+        to_numpy = True
+        patches = torch.tensor(patches)
+    if not isinstance(patch_size, np.ndarray):
+        patch_size = np.array(patch_size)
+    if not isinstance(stride, np.ndarray):
+        stride = np.array(stride)
+
+    for i, dim in enumerate(patches.shape):
+        if dim == 1: patches = patches.squeeze(i)
+    
+    assert len(patches.shape) == 4
+
+    out_shape = tuple(vol_meta['shape_patched'][:3]) + tuple(patches.shape[1:])
+    res = patches2vol(patches.view(out_shape), patch_size, stride)
     output_pad = get_padding(res.shape, vol_meta['shape_orig'])
     res = F.pad(res, output_pad)
+    if normalize: res = torch.sigmoid(res)
+    if to_numpy: res = res.numpy()
     return res

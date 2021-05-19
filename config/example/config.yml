@@ -18,6 +18,7 @@ train:
     loss_type: dice # one of [dice, bce, dicebce, dicebceohnm]
     fully_conv: true
     skip_empty_patches: false
+    mask_heart: false
     kernel_size: 3
     # model specific params
     unet:
