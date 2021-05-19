@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import numpy as np
 from torch.optim import Adam
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 import pytorch_lightning as pl
@@ -8,18 +9,25 @@ from loss import DiceBCELoss, DiceLoss, DiceBCE_OHNMLoss
 from metrics import dice_score
 import wandb
 
-
 class Base(pl.LightningModule):
-    def __init__(self, *args, lr=1e-3, loss_type='dice', skip_empty_patches=False, **kwargs):
+    def __init__(self, *args,
+                        lr=1e-3,
+                        loss_type='dice',
+                        skip_empty_patches=False,
+                        mask_heart=False,
+                        **kwargs):
         super().__init__(*args, **kwargs)
         self.crit = self.get_loss_func(loss_type)
-        self.f1 = torchmetrics.F1()
+        f1 = torchmetrics.F1()
+        self.train_f1 = f1.clone()
+        self.valid_f1 = f1.clone()
         self.iou = torchmetrics.IoU(num_classes=2)
         self.lr = lr
         self.skip_empty_patches = skip_empty_patches
+        self.mask_heart = mask_heart
     
-    def log(self, name: str, value, *args, **kwargs):
-        wandb.log({name: value}, commit=False)
+    def log(self, name: str, value, *args, commit=False, batch_idx=None, **kwargs):
+        wandb.log({name: value, 'batch_idx': batch_idx}, commit=commit)
         return super().log(name, value, *args, **kwargs)
 
     @staticmethod
@@ -61,57 +69,84 @@ class Base(pl.LightningModule):
     
     def prepare_batch(self, batch, split='train'):
         # crops targets to match the padding lost in the convolutions
-        x, targs = batch
+        x, targs, hmasks = batch
         targs = self.crop_data(targs)
+        hmasks = self.crop_data(hmasks)
+        hmasks[hmasks==0] = -1
         if self.skip_empty_patches and split == 'train':
-            mask = self.get_empty_patch_mask(targs)
-            x, targs = x[mask], targs[mask]
-        return x, targs
+            non_empty = self.get_empty_patch_mask(targs)
+            x, targs, hmasks = x[non_empty], targs[non_empty], hmasks[non_empty]
+        return x, targs, hmasks
 
-    def training_step(self, batch, batch_idx):
-        x, targs = self.prepare_batch(batch, 'train')
-        if len(x) == 0: return
-
-        preds = self(x)
-        if isinstance(preds, torch.Tensor):
-            preds = self.crop_preds(preds, targs)
-            loss = self.crit(preds, targs)
-        else:
-            preds = [ self.crop_preds(pred, targs) for pred in preds ]
-            losses = torch.stack([ self.crit(pred, targs) for pred in preds ])
-            if hasattr(self, 'ds_weight'):
-                loss = losses @ self.ds_weight
-            else:
-                loss = losses.sum()
-
-        self.log_metrics(preds, targs, loss)
-        return loss
-   
-    def validation_step(self, batch, batch_idx):
-        x, targs = self.prepare_batch(batch, 'valid')
-        if len(x) == 0: return
-
-        preds = self(x)
-        if isinstance(preds, torch.Tensor):
-            preds = self.crop_preds(preds, targs)
-        else:
-            preds = self.crop_preds(preds[-1], targs)
-        loss = self.crit(preds, targs)
-        self.log_metrics(preds, targs, loss, split='valid')
-    
-    def log_metrics(self, preds, targs, loss, split='train'):
+    def apply_nonlinearity(self, preds):
         if isinstance(preds, torch.Tensor):
             preds = torch.sigmoid(preds)
         else:
             preds = torch.sigmoid(preds[-1])
         preds = preds.round()
-        self.log(f'{split}_loss', loss.item())
-        self.log(f'{split}_f1', self.f1(preds, targs).item())
-        if split == 'valid':
-            self.log(f'valid_dice', dice_score(preds, targs).item(), prog_bar=True)
-            self.log(f'valid_iou', self.iou(preds, targs).item(), prog_bar=True)
-        
-        wandb.log({})
+        return preds
+
+    def training_step(self, batch, batch_idx):
+        x, targs, h_masks = self.prepare_batch(batch, 'train')
+        if len(x) == 0: return
+
+        preds = self(x)
+        if isinstance(preds, torch.Tensor):
+            preds = self.crop_preds(preds, targs)
+            if self.mask_heart: preds = preds * h_masks
+            loss = self.crit(preds, targs)
+        else:
+            preds = [ self.crop_preds(pred, targs) * h_masks for pred in preds ]
+            losses = torch.stack([ self.crit(pred, targs) for pred in preds ])
+            if hasattr(self, 'ds_weight'):
+                loss = losses @ self.ds_weight
+            else:
+                loss = losses.mean()
+
+        return { 'batch_idx': batch_idx, 'loss': loss, 'preds': preds, 'targs': targs }
+    
+    def training_step_end(self, outs):
+        batch_idx, preds, targs = outs['batch_idx'], outs['preds'], outs['targs']
+        preds = self.apply_nonlinearity(preds)
+
+        self.log(f'train/loss', outs['loss'].item(), batch_idx=batch_idx)
+        self.log(f'train/dice', dice_score(preds, targs).item(), batch_idx=batch_idx, prog_bar=True)
+        self.log(f'train/f1', self.train_f1(preds, targs).item(), batch_idx=batch_idx, commit=True)
+
+    def training_epoch_end(self, outs):
+        self.log("train/f1_epoch", self.train_f1.compute(), commit=True)
+
+    def validation_step(self, batch, batch_idx):
+        x, targs, h_masks = self.prepare_batch(batch, 'valid')
+        preds = self(x)
+        if isinstance(preds, torch.Tensor):
+            preds = self.crop_preds(preds, targs)
+        else:
+            preds = self.crop_preds(preds[-1], targs)
+        if self.mask_heart: preds = preds * h_masks
+        loss = self.crit(preds, targs)
+
+        return { 'batch_idx': batch_idx, 'loss': loss, 'preds': preds, 'targs': targs }
+
+    def validation_step_end(self, outs):
+        batch_idx, preds, targs = outs['batch_idx'], outs['preds'], outs['targs']
+        preds = self.apply_nonlinearity(preds)
+
+        valid_f1 = self.valid_f1(preds, targs).item()
+        valid_iou = self.iou(preds, targs).item()
+        valid_loss = outs['loss'].item()
+        self.log(f'valid/loss', valid_loss, batch_idx=batch_idx)
+        self.log(f'valid/dice', dice_score(preds, targs).item(), batch_idx=batch_idx, prog_bar=True)
+        self.log(f'valid/f1', valid_f1, batch_idx=batch_idx)
+        self.log(f'valid/iou', valid_iou, batch_idx=batch_idx, commit=True)
+        return { 'loss': valid_loss, 'f1': valid_f1, 'iou': valid_iou }
+
+    def validation_epoch_end(self, outs):
+        epoch_f1 = np.array([ b['f1'] for b in outs ]).mean()
+        epoch_iou = np.array([ b['iou'] for b in outs ]).mean()
+        self.log("valid/f1_epoch", epoch_f1)
+        self.log("valid/iou_epoch", epoch_iou, commit=True)
+    
 
     def configure_optimizers(self):
         optimizer = Adam(self.parameters(), lr=self.lr)
@@ -120,6 +155,7 @@ class Base(pl.LightningModule):
             'scheduler': ReduceLROnPlateau(optimizer, 'min', patience=5),
             'monitor': 'valid_loss'
         }
+
 
 class Baseline3DCNN(Base):
     def __init__(self, *args, kernel_size=5, **kwargs):

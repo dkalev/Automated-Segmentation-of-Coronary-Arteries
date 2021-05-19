@@ -8,7 +8,7 @@ class ASOCASampler(Sampler):
                 shuffle=False,
                 oversample=False,
                 binary_weights=False,
-                perc_per_epoch=0.25,
+                perc_per_epoch=1,
                 oversample_coef=100,
                 alpha=1):
         self.shapes = shapes

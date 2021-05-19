@@ -25,7 +25,7 @@ class AsocaDataModule(DatasetBuilder, LightningDataModule):
                 patch_stride=None,
                 oversample=False,
                 distributed=False,
-                perc_per_epoch=0.25,
+                perc_per_epoch=1,
                 oversample_coef=100,
                 data_dir='dataset/processed', **kwargs):
         super().__init__(logger, *args, **kwargs)
