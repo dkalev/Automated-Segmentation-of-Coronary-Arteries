@@ -76,7 +76,6 @@ class Base(pl.LightningModule):
         x, targs, hmasks = batch
         targs = self.crop_data(targs)
         hmasks = self.crop_data(hmasks)
-        hmasks[hmasks==0] = -1
         if self.skip_empty_patches and split == 'train':
             non_empty = self.get_empty_patch_mask(targs)
             x, targs, hmasks = x[non_empty], targs[non_empty], hmasks[non_empty]
@@ -97,10 +96,11 @@ class Base(pl.LightningModule):
         preds = self(x)
         if isinstance(preds, torch.Tensor):
             preds = self.crop_preds(preds, targs)
-            if self.mask_heart: preds = preds * h_masks
+            if self.mask_heart: preds = preds.masked_fill(h_masks==0, -10)
             loss = self.crit(preds, targs)
         else:
             preds = [ self.crop_preds(pred, targs) * h_masks for pred in preds ]
+            # FIXME add mask_heart
             losses = torch.stack([ self.crit(pred, targs) for pred in preds ])
             if hasattr(self, 'ds_weight'):
                 loss = losses @ self.ds_weight
@@ -128,31 +128,20 @@ class Base(pl.LightningModule):
             preds = self.crop_preds(preds, targs)
         else:
             preds = self.crop_preds(preds[-1], targs)
-        if self.mask_heart: preds = preds * h_masks
+        if self.mask_heart: preds = preds.masked_fill(h_masks==0, -10)
         loss = self.crit(preds, targs)
 
         return { 'batch_idx': batch_idx, 'loss': loss, 'preds': preds, 'targs': targs }
 
     def validation_step_end(self, outs):
-        batch_idx, preds, targs = outs['batch_idx'], outs['preds'], outs['targs']
+        preds, targs = outs['preds'], outs['targs']
         preds = self.apply_nonlinearity(preds)
 
-        valid_f1 = self.valid_f1(preds, targs).item()
-        valid_iou = self.iou(preds, targs).item()
-        valid_loss = outs['loss'].item()
-        self.log(f'valid/loss', valid_loss, batch_idx=batch_idx)
-        self.log(f'valid/dice', dice_score(preds, targs).item(), batch_idx=batch_idx, prog_bar=True)
-        self.log(f'valid/f1', valid_f1, batch_idx=batch_idx)
-        self.log(f'valid/iou', valid_iou, batch_idx=batch_idx, commit=True)
-        return { 'loss': valid_loss, 'f1': valid_f1, 'iou': valid_iou }
-
-    def validation_epoch_end(self, outs):
-        epoch_f1 = np.array([ b['f1'] for b in outs ]).mean()
-        epoch_iou = np.array([ b['iou'] for b in outs ]).mean()
-        self.log("valid/f1_epoch", epoch_f1)
-        self.log("valid/iou_epoch", epoch_iou, commit=True)
+        self.log(f'valid/loss', outs['loss'].item(), on_epoch=True)
+        self.log(f'valid/dice', dice_score(preds, targs).item(), on_epoch=True)
+        self.log(f'valid/f1', self.valid_f1(preds, targs).item(), on_epoch=True)
+        self.log(f'valid/iou', self.iou(preds, targs).item(), on_epoch=True, commit=True)
     
-
     def configure_optimizers(self):
         optimizer = Adam(self.parameters(), lr=self.lr)
         return {
