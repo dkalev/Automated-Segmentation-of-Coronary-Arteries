@@ -24,21 +24,21 @@ class DiceLoss(BaseLoss):
         self.eps = eps
         self.generalized = generalized
     
-    def get_weight(self, targs):
-        if not self.generalized: return torch.ones(targs.shape[:2]).to(targs.device)
-        return  1 / ((torch.einsum("bc...->bc", targs) + self.eps) ** 2)
-
     def forward(self, preds, targs):
-        w = self.get_weight(targs)
-        intersection = w * torch.einsum('bc...,bc...->bc', preds, targs)
-        denom = w * (torch.einsum("bc...->bc", preds) + torch.einsum("bc...->bc", targs))
+        sum_dims = list(range(2, len(preds.shape)))
+        intersection = torch.sum(preds * targs, dim=sum_dims)
+        denom =  preds.sum(dim=sum_dims) + targs.sum(dim=sum_dims) 
+        if self.generalized:
+            w =  1 / ((targs.sum(dim=sum_dims) + self.eps) ** 2)
+            intersection = w * intersection
+            denom = w * denom
         loss = 1 - (2 * intersection + self.eps) / (denom + self.eps)
         return loss.mean()
 
 
 class CombinedLoss(BaseLoss):
-    def __init__(self, *args, dice_kwargs=None, normalize=True, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, dice_kwargs=None, normalize=True):
+        super().__init__(normalize=False) # normalize the individual components separately
 
         if normalize:
             self.bce = nn.functional.binary_cross_entropy_with_logits
