@@ -27,7 +27,11 @@ class Base(pl.LightningModule):
         self.mask_heart = mask_heart
     
     def log(self, name: str, value, *args, commit=False, batch_idx=None, **kwargs):
-        wandb.log({name: value, 'batch_idx': batch_idx}, commit=commit)
+        wandb.log({
+            name: value,
+            'iter': batch_idx,
+            'epoch': self.current_epoch
+        }, commit=commit)
         return super().log(name, value, *args, **kwargs)
 
     @staticmethod
@@ -112,6 +116,7 @@ class Base(pl.LightningModule):
         self.log(f'train/loss', outs['loss'].item(), batch_idx=batch_idx)
         self.log(f'train/dice', dice_score(preds, targs).item(), batch_idx=batch_idx, prog_bar=True)
         self.log(f'train/f1', self.train_f1(preds, targs).item(), batch_idx=batch_idx, commit=True)
+        return outs['loss']
 
     def training_epoch_end(self, outs):
         self.log("train/f1_epoch", self.train_f1.compute(), commit=True)
