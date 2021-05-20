@@ -75,7 +75,10 @@ class Base(pl.LightningModule):
         # crops targets to match the padding lost in the convolutions
         x, targs, hmasks = batch
         targs = self.crop_data(targs)
-        hmasks = self.crop_data(hmasks)
+        if hmasks is None:
+            self.mask_heart = False
+        else:
+            hmasks = self.crop_data(hmasks)
         if self.skip_empty_patches and split == 'train':
             non_empty = self.get_empty_patch_mask(targs)
             x, targs, hmasks = x[non_empty], targs[non_empty], hmasks[non_empty]
@@ -114,8 +117,7 @@ class Base(pl.LightningModule):
         preds = self.apply_nonlinearity(preds)
 
         self.log(f'train/loss', outs['loss'].item(), batch_idx=batch_idx)
-        self.log(f'train/dice', dice_score(preds, targs).item(), batch_idx=batch_idx, prog_bar=True)
-        self.log(f'train/f1', self.train_f1(preds, targs).item(), batch_idx=batch_idx, commit=True)
+        self.log(f'train/f1', self.train_f1(preds.flatten().int(), targs.flatten()).item(), batch_idx=batch_idx, commit=True, prog_bar=True)
         return outs['loss']
 
     def training_epoch_end(self, outs):
@@ -138,8 +140,7 @@ class Base(pl.LightningModule):
         preds = self.apply_nonlinearity(preds)
 
         self.log(f'valid/loss', outs['loss'].item(), on_epoch=True)
-        self.log(f'valid/dice', dice_score(preds, targs).item(), on_epoch=True)
-        self.log(f'valid/f1', self.valid_f1(preds, targs).item(), on_epoch=True)
+        self.log(f'valid/f1', self.valid_f1(preds.flatten().int(), targs.flatten()).item(), on_epoch=True)
         self.log(f'valid/iou', self.iou(preds, targs).item(), on_epoch=True, commit=True)
     
     def configure_optimizers(self):
