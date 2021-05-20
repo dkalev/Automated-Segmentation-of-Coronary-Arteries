@@ -6,8 +6,9 @@ from torch.utils.data import Dataset
 
 
 class AsocaDataset(Dataset):
-    def __init__(self, ds_path='dataset/processed', split='train'):
+    def __init__(self, ds_path='dataset/processed', heart_mask=True, split='train'):
         self.ds_path = Path(ds_path, split)
+        self.heart_mask = heart_mask
         with open(Path(ds_path, 'dataset.json'), 'r') as f:
             meta = json.load(f)
         self.vol_meta = { int(k): v for k, v in meta['vol_meta'].items() if v['split'] == split }
@@ -40,10 +41,18 @@ class AsocaDataset(Dataset):
         file_id, idx = self.split_index(index)
         x = np.load(Path(self.ds_path, 'vols', f'{file_id}.npy'), mmap_mode='r+')
         y = np.load(Path(self.ds_path, 'masks', f'{file_id}.npy'), mmap_mode='r+')
-        hm = np.load(Path(self.ds_path, 'heart_masks', f'{file_id}.npy'), mmap_mode='r+')
-        x, y, hm = x[idx], y[idx], hm[idx]
-        x, y, hm = torch.tensor(x), torch.LongTensor(y), torch.tensor(hm)
-        if len(x.shape) == 3: x, y, hm = x.unsqueeze(0), y.unsqueeze(0), hm.unsqueeze(0)
+        x, y = x[idx], y[idx]
+        x, y = torch.tensor(x), torch.LongTensor(y)
+
+        hm = None
+        if self.heart_mask:
+            hm = np.load(Path(self.ds_path, 'heart_masks', f'{file_id}.npy'), mmap_mode='r+')
+            hm = torch.tensor(hm[idx])
+
+        if len(x.shape) == 3:
+            x, y = x.unsqueeze(0), y.unsqueeze(0)
+            if self.heart_mask: hm = hm.unsqueeze(0)
+        
         return x, y, hm
 
 class AsocaVolumeDataset(AsocaDataset):
