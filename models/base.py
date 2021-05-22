@@ -25,11 +25,32 @@ class Base(pl.LightningModule):
         self.lr = lr
         self.skip_empty_patches = skip_empty_patches
         self.mask_heart = mask_heart
-    
-    def log(self, name: str, value, *args, commit=False, batch_idx=None, **kwargs):
+
+    @property
+    def train_iter(self):
+        if not hasattr(self, '_train_iter'):
+            self._train_iter = 0
+        return self._train_iter
+
+    @train_iter.setter
+    def train_iter(self, val):
+        self._train_iter = self._train_iter + 1 if val is None else val
+
+    @property
+    def valid_iter(self):
+        if not hasattr(self, '_valid_iter'):
+            self._valid_iter = 0
+        return self._valid_iter
+
+    @valid_iter.setter
+    def valid_iter(self, val=None):
+        self._valid_iter = self._valid_iter + 1 if val is None else val
+
+    def log(self, name: str, value, *args, commit=False, **kwargs):
+        split = 'train' if 'train' in name else 'valid'
         wandb.log({
             name: value,
-            'iter': batch_idx,
+            'iter': getattr(self, f'{split}_iter'),
             'epoch': self.current_epoch
         }, commit=commit)
         return super().log(name, value, *args, **kwargs)
@@ -66,11 +87,11 @@ class Base(pl.LightningModule):
             return preds
         else:
             return self.crop_data(preds)
-    
+
     @staticmethod
     def get_empty_patch_mask(targs):
         return targs.sum(dim=[1,2,3,4]) > 0
-    
+
     def prepare_batch(self, batch, split='train'):
         # crops targets to match the padding lost in the convolutions
         x, targs, hmasks = batch
@@ -93,6 +114,7 @@ class Base(pl.LightningModule):
         return preds
 
     def training_step(self, batch, batch_idx):
+        self.train_iter += 1
         x, targs, h_masks = self.prepare_batch(batch, 'train')
         if len(x) == 0: return
 
@@ -111,19 +133,22 @@ class Base(pl.LightningModule):
                 loss = losses.mean()
 
         return { 'batch_idx': batch_idx, 'loss': loss, 'preds': preds, 'targs': targs }
-    
+
     def training_step_end(self, outs):
+        if outs is None: return
         batch_idx, preds, targs = outs['batch_idx'], outs['preds'], outs['targs']
         preds = self.apply_nonlinearity(preds)
 
-        self.log(f'train/loss', outs['loss'].item(), batch_idx=batch_idx)
-        self.log(f'train/f1', self.train_f1(preds.flatten().int(), targs.flatten()).item(), batch_idx=batch_idx, commit=True, prog_bar=True)
+        self.log(f'train/loss', outs['loss'].item())
+        self.log(f'train/dice', dice_score(preds, targs).item(), prog_bar=True)
+        self.log(f'train/f1', self.train_f1(preds.flatten().int(), targs.flatten()).item(), commit=True)
         return outs['loss']
 
     def training_epoch_end(self, outs):
         self.log("train/f1_epoch", self.train_f1.compute(), commit=True)
 
     def validation_step(self, batch, batch_idx):
+        self.valid_iter += 1
         x, targs, h_masks = self.prepare_batch(batch, 'valid')
         preds = self(x)
         if isinstance(preds, torch.Tensor):
@@ -138,11 +163,22 @@ class Base(pl.LightningModule):
     def validation_step_end(self, outs):
         preds, targs = outs['preds'], outs['targs']
         preds = self.apply_nonlinearity(preds)
+        return { 'loss': outs['loss'].item(),
+                 'intersection': torch.sum(preds * targs).item(),
+                 'denom': preds.sum().item() + targs.sum().item() }
 
-        self.log(f'valid/loss', outs['loss'].item(), on_epoch=True)
-        self.log(f'valid/f1', self.valid_f1(preds.flatten().int(), targs.flatten()).item(), on_epoch=True)
-        self.log(f'valid/iou', self.iou(preds, targs).item(), on_epoch=True, commit=True)
-    
+    def validation_epoch_end(self, outs):
+        loss  = np.mean([out['loss'] for out in outs])
+        loss_std = np.std([out['loss'] for out in outs])
+        intersection = np.sum([out['intersection'] for out in outs])
+        denom = np.sum([out['denom'] for out in outs])
+        dice_score = (2 * intersection + 1e-10) / (denom + 1e-10)
+        iou_score = intersection / (denom - intersection)
+        self.log(f'valid/loss', loss)
+        self.log(f'valid/loss_std', loss_std)
+        self.log(f'valid/dice', dice_score)
+        self.log(f'valid/iou', iou_score, commit=True)
+
     def configure_optimizers(self):
         optimizer = Adam(self.parameters(), lr=self.lr)
         return {
@@ -183,6 +219,6 @@ class Baseline3DCNN(Base):
         self.crop = (common_params['kernel_size']//2) * len(blocks)
 
         self.model = nn.Sequential(*blocks)
-    
+
     def forward(self, x):
         return self.model(x)
