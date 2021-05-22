@@ -35,14 +35,14 @@ class UNet(Base):
 
         if self.deep_supervision:
             self.heads = nn.ModuleList([
-                nn.Conv3d(320, 1, kernel_size=1),
-                nn.Conv3d(256, 1, kernel_size=1),
-                nn.Conv3d(128, 1, kernel_size=1),
-                nn.Conv3d(64, 1, kernel_size=1),
-                nn.Conv3d(32, 1, kernel_size=1),
+                nn.Conv3d(320, 1, kernel_size=1, bias=False),
+                nn.Conv3d(256, 1, kernel_size=1, bias=False),
+                nn.Conv3d(128, 1, kernel_size=1, bias=False),
+                nn.Conv3d(64, 1, kernel_size=1, bias=False),
+                nn.Conv3d(32, 1, kernel_size=1, bias=False),
             ])
         else:
-            self.final = nn.Conv3d(n_features, 1, kernel_size=1)
+            self.final = nn.Conv3d(n_features, 1, kernel_size=1, bias=False)
     
         self.register_buffer('ds_weight',
             torch.FloatTensor([0., 0.06666667, 0.13333333, 0.26666667, 0.53333333])
@@ -52,22 +52,22 @@ class UNet(Base):
     
     def get_encoder(self, in_channels, out_channels, stride=2):
         return nn.Sequential(OrderedDict({
-            'conv1': nn.Conv3d(in_channels, out_channels, kernel_size=self.kernel_size, stride=stride, padding=self.padding, bias=False),
-            'instnorm': nn.InstanceNorm3d(out_channels),
-            'lrelu': nn.LeakyReLU(inplace=True),
-            'conv2': nn.Conv3d(out_channels, out_channels, kernel_size=self.kernel_size, padding=self.padding, bias=False),
-            'instnorm': nn.InstanceNorm3d(out_channels),
-            'lrelu': nn.LeakyReLU(inplace=True),
+            'conv1': nn.Conv3d(in_channels, out_channels, kernel_size=self.kernel_size, stride=stride, padding=self.padding),
+            'instnorm1': nn.InstanceNorm3d(out_channels, affine=True),
+            'lrelu1': nn.LeakyReLU(inplace=True),
+            'conv2': nn.Conv3d(out_channels, out_channels, kernel_size=self.kernel_size, padding=self.padding),
+            'instnorm2': nn.InstanceNorm3d(out_channels, affine=True),
+            'lrelu2': nn.LeakyReLU(inplace=True),
         }))
 
     def get_decoder(self, in_channels, out_channels):
         return nn.Sequential(OrderedDict({
-            'conv1': nn.Conv3d(in_channels, out_channels, kernel_size=self.kernel_size, padding=self.padding, bias=False),
-            'instnorm': nn.InstanceNorm3d(out_channels),
-            'lrelu': nn.LeakyReLU(inplace=True),
-            'conv2': nn.Conv3d(out_channels, out_channels, kernel_size=self.kernel_size, padding=self.padding, bias=False),
-            'instnorm': nn.InstanceNorm3d(out_channels),
-            'lrelu': nn.LeakyReLU(inplace=True),
+            'conv1': nn.Conv3d(in_channels, out_channels, kernel_size=self.kernel_size, padding=self.padding),
+            'instnorm1': nn.InstanceNorm3d(out_channels, affine=True),
+            'lrelu1': nn.LeakyReLU(inplace=True),
+            'conv2': nn.Conv3d(out_channels, out_channels, kernel_size=self.kernel_size, padding=self.padding),
+            'instnorm2': nn.InstanceNorm3d(out_channels, affine=True),
+            'lrelu2': nn.LeakyReLU(inplace=True),
         }))
 
     def get_upsampler(self, in_channels, out_channels, kernel_size=2, stride=2):
@@ -75,12 +75,12 @@ class UNet(Base):
 
     def get_bottleneck(self, channels):
         return nn.Sequential(OrderedDict({
-            'conv1': nn.Conv3d(channels, channels, kernel_size=self.kernel_size, stride=(1,2,2), padding=self.padding, bias=False),
-            'instnorm': nn.InstanceNorm3d(channels),
-            'lrelu': nn.LeakyReLU(inplace=True),
-            'conv2': nn.Conv3d(channels, channels, kernel_size=self.kernel_size, padding=self.padding, bias=False),
-            'instnorm': nn.InstanceNorm3d(channels),
-            'lrelu': nn.LeakyReLU(inplace=True),
+            'conv1': nn.Conv3d(channels, channels, kernel_size=self.kernel_size, stride=(1,2,2), padding=self.padding),
+            'instnorm1': nn.InstanceNorm3d(channels, affine=True),
+            'lrelu1': nn.LeakyReLU(inplace=True),
+            'conv2': nn.Conv3d(channels, channels, kernel_size=self.kernel_size, padding=self.padding),
+            'instnorm2': nn.InstanceNorm3d(channels, affine=True),
+            'lrelu2': nn.LeakyReLU(inplace=True),
         }))
 
     def forward(self, x):
