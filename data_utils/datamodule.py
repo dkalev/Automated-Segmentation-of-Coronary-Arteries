@@ -58,7 +58,7 @@ class AsocaDataModule(DatasetBuilder, LightningDataModule):
 
         if Path(self.data_dir).is_dir(): shutil.rmtree(self.data_dir)
 
-        subdirs = ['Train', 'Train_Masks', 'Test']
+        subdirs = ['Train', 'Train_Masks', 'Train_WH_Masks', 'Test']
         folders_exist = [ Path(self.data_dir, subdir).is_dir() for subdir in subdirs ]
         if not all(folders_exist):
             logger.info(f'Extracting data from {self.sourcepath}')
@@ -74,12 +74,11 @@ class AsocaDataModule(DatasetBuilder, LightningDataModule):
             shutil.rmtree(Path(self.data_dir, subdir))
 
         logger.info('Done')
-    
+
     def train_dataloader(self, batch_size=None, num_workers=12):
         if batch_size is None: batch_size = self.batch_size
         train_split = AsocaDataset(ds_path=self.data_dir, split='train')
         sampler = ASOCASampler(train_split.vol_meta,
-                                shuffle=True,
                                 oversample=self.oversample,
                                 perc_per_epoch=self.perc_per_epoch,
                                 oversample_coef=self.oversample_coef)
