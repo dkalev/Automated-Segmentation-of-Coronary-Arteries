@@ -20,7 +20,7 @@ class DatasetBuilder():
                 data_clip_range=(0, 400),
                 rebuild=False,
                 resample_vols=True,
-                crop_empty=False, 
+                crop_empty=False,
                 sourcepath='dataset/ASOCA2020Data.zip', **kwargs):
 
         self.logger = logger
@@ -66,7 +66,7 @@ class DatasetBuilder():
             'vol_meta'
             ]): return False
         if not set(meta['vol_meta'].keys()) == set([str(x) for x in range(40)]): return False
-        if not all([set(vol_meta.keys()) == set(['shape_orig', 'shape_cropped', 'shape_resampled', 'split', 'orig_spacing', 'shape_patched', 'n_patches', 'foreground_ratio', 'padding']) 
+        if not all([set(vol_meta.keys()) == set(['shape_orig', 'shape_cropped', 'shape_resampled', 'split', 'orig_spacing', 'shape_patched', 'n_patches', 'foreground_ratio', 'padding'])
             for vol_meta in meta['vol_meta'].values()
         ]): return False
 
@@ -94,8 +94,8 @@ class DatasetBuilder():
     def get_resampled_shape(volume, spacing):
         target_spacing = np.array([0.625, 0.3964845058, 0.3964845058 ])
         return ((spacing / target_spacing) * volume.shape).round().astype(np.int64)
-    
-    def get_crop_mask(self, data):
+
+    def get_crop_bbox(self, data):
         nonzero = np.argwhere(data)
         top_left, bottom_right = np.min(nonzero, axis=0), np.max(nonzero, axis=0)
         padding = self.patch_size - (bottom_right - top_left)
@@ -105,25 +105,24 @@ class DatasetBuilder():
 
         top_left -= offset_left
         bottom_right += offset_right
-        
+
         return (
             slice(top_left[0], bottom_right[0]+1),
             slice(top_left[1], bottom_right[1]+1),
             slice(top_left[2], bottom_right[2]+1),
         )
-        
+
     def get_clip_bounds(self, data, mask):
         if self.data_clip_range == 'percentile':
-            return np.percentile(data[mask==1], 5), np.percentile(data[mask==1], 99.5)
+            return self.stats['percentile_00_5'], self.stats['percentile_99_5']
         else:
             return self.data_clip_range
 
     def normalize_data(self, data, mask):
         if self.data_clip_range is not None:
             lb, ub = self.get_clip_bounds(data, mask)
-            mask = (data > lb) & (data < ub) 
-            mean = data[mask].mean()
-            std  = data[mask].std()
+            mean = data[mask==1].mean()
+            std  = data[mask==1].std()
             data = np.clip(data, lb, ub)
         else:
             mean = data.mean()
@@ -140,7 +139,7 @@ class DatasetBuilder():
         padding = get_patch_padding(mask.shape, self.patch_size, self.stride)
 
         if split == 'train' and self.crop_empty:
-            crop_mask = self.get_crop_mask(mask)
+            crop_mask = self.get_crop_bbox(mask)
             mask = mask[crop_mask]
 
         spacing = np.diagonal(header['space directions'])[::-1]
@@ -206,6 +205,12 @@ class DatasetBuilder():
                 'padding': padding
                 })
 
+    def _get_foreground(self, paths):
+        vol_path, mask_path = paths
+        mask, _ = nrrd.read(mask_path, index_order='C')
+        vol, _ = nrrd.read(vol_path, index_order='C')
+        return vol[mask==1].flatten()[::10]
+
     def build_dataset(self, volume_path, mask_path, heart_mask_path):
         meta = OrderedDict({
             'patch_size': [ int(x) for x in self.patch_size ],
@@ -220,7 +225,7 @@ class DatasetBuilder():
             os.makedirs(Path(self.data_dir, split), exist_ok=True)
             for part in ['vols', 'masks', 'heart_masks']:
                 os.makedirs(Path(self.data_dir, split, part), exist_ok=True)
-    
+
         paths = [ ( file_id,
                     Path(volume_path, f'{file_id}.nrrd'),
                     Path(mask_path, f'{file_id}.nrrd'),
@@ -228,12 +233,21 @@ class DatasetBuilder():
                     'train' if file_id not in self.valid_idxs else 'valid'
                     ) for file_id in range(40) ]
 
+
         with ProcessPoolExecutor(max_workers=self.num_workers) as exec:
+           train_paths = [ (p[1], p[2]) for p in paths if p[-1] == 'train' ]
+           fg_voxels = list(tqdm(exec.map(self._get_foreground, train_paths), total=len(train_paths)))
+           fg_voxels = np.concatenate(fg_voxels)
+           self.stats = {
+                    'percentile_00_5': np.percentile(fg_voxels, 0.5),
+                    'percentile_99_5': np.percentile(fg_voxels, 99.5),
+                   }
            vol_meta = list(tqdm(
                 exec.map(self.preprocess, paths),
                 total=len(paths)))
-        
+
         meta['vol_meta'] = { m[0]: m[1] for m in vol_meta }
 
         with open(Path(self.data_dir, 'dataset.json'), 'w') as f:
             json.dump(meta, f, indent=4)
+

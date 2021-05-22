@@ -57,7 +57,7 @@ class AsocaDataset(Dataset):
 
 class AsocaVolumeDataset(AsocaDataset):
     def __init__(self, *args, vol_id, **kwargs):
-        super().__init__(*args, **kwargs)
+        super().__init__(*args, heart_mask=False, **kwargs)
         self.vol_meta = { vol_id: self.vol_meta[vol_id] }
 
     def get_vol_meta(self, vol_id):
