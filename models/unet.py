@@ -43,13 +43,13 @@ class UNet(Base):
             ])
         else:
             self.final = nn.Conv3d(n_features, 1, kernel_size=1, bias=False)
-    
+
         self.register_buffer('ds_weight',
             torch.FloatTensor([0., 0.06666667, 0.13333333, 0.26666667, 0.53333333])
         )
 
         self.crop = len(self.encoders) * 2 * self.padding # 2 conv per encoder
-    
+
     def get_encoder(self, in_channels, out_channels, stride=2):
         return nn.Sequential(OrderedDict({
             'conv1': nn.Conv3d(in_channels, out_channels, kernel_size=self.kernel_size, stride=stride, padding=self.padding),

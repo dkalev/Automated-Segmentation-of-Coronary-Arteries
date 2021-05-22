@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import numpy as np
-from torch.optim import Adam
+from torch.optim import Adam, SGD
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 import pytorch_lightning as pl
 import torchmetrics
@@ -15,6 +15,7 @@ class Base(pl.LightningModule):
                         loss_type='dice',
                         skip_empty_patches=False,
                         mask_heart=False,
+                        optim_type='adam',
                         **kwargs):
         super().__init__(*args, **kwargs)
         self.crit = self.get_loss_func(loss_type)
@@ -25,6 +26,11 @@ class Base(pl.LightningModule):
         self.lr = lr
         self.skip_empty_patches = skip_empty_patches
         self.mask_heart = mask_heart
+
+        if optim_type in ['adam', 'sgd']:
+            self.optim_type = optim_type
+        else:
+            raise ValueError(f'Unsupported optimizer type: {optim_type}')
 
     @property
     def train_iter(self):
@@ -124,8 +130,9 @@ class Base(pl.LightningModule):
             if self.mask_heart: preds = preds.masked_fill(h_masks==0, -10)
             loss = self.crit(preds, targs)
         else:
-            preds = [ self.crop_preds(pred, targs) * h_masks for pred in preds ]
-            # FIXME add mask_heart
+            preds = [ self.crop_preds(pred, targs) for pred in preds ]
+            if self.mask_heart:
+                preds = [ pred.masked_fill(h_masks==0, -10) for pred in preds ]
             losses = torch.stack([ self.crit(pred, targs) for pred in preds ])
             if hasattr(self, 'ds_weight'):
                 loss = losses @ self.ds_weight
@@ -180,7 +187,10 @@ class Base(pl.LightningModule):
         self.log(f'valid/iou', iou_score, commit=True)
 
     def configure_optimizers(self):
-        optimizer = Adam(self.parameters(), lr=self.lr)
+        if self.optim_type == 'adam':
+            optimizer = Adam(self.parameters(), lr=self.lr, weight_decay=1e-5)
+        elif self.optim_type == 'sgd':
+            optimizer = SGD(self.parameters(), lr=self.lr, momentum=0.99, nesterov=True, weight_decay=1e-5)
         return {
             'optimizer': optimizer,
             'scheduler': ReduceLROnPlateau(optimizer, 'min', patience=5),
@@ -198,10 +208,10 @@ class Baseline3DCNN(Base):
         }
 
         block_params = [
-            {'in_channels':1, 'out_channels': 4 },
-            {'in_channels':4, 'out_channels': 16 },
+            {'in_channels':1, 'out_channels': 16 },
             {'in_channels':16, 'out_channels': 32 },
-            {'in_channels':32, 'out_channels': 4 },
+            {'in_channels':32, 'out_channels': 64 },
+            {'in_channels':64, 'out_channels': 16 },
         ]
 
         blocks = [
