@@ -6,7 +6,6 @@ dataset:
     num_workers: 4
     resample_vols: false
     oversample: false
-    oversample_coef: 100
     crop_empty: true
 train:
     model: cnn # one of [cnn, unet, e3nn_cnn]
@@ -19,6 +18,7 @@ train:
     fully_conv: true
     skip_empty_patches: false
     mask_heart: false
+    optim_type: adam # one of [sgd, adam]
     kernel_size: 3
     # model specific params
     unet:
