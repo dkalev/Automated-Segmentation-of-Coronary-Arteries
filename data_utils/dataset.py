@@ -12,7 +12,7 @@ class AsocaDataset(Dataset):
         with open(Path(ds_path, 'dataset.json'), 'r') as f:
             meta = json.load(f)
         self.vol_meta = { int(k): v for k, v in meta['vol_meta'].items() if v['split'] == split }
-    
+
     @property
     def max_patches(self):
         if not hasattr(self, '_max_patches'):
@@ -36,7 +36,7 @@ class AsocaDataset(Dataset):
             file_id = index.start // self.max_patches
             idx = slice(index.start % self.max_patches, index.stop % self.max_patches)
         return file_id, idx
-    
+
     def __getitem__(self, index):
         file_id, idx = self.split_index(index)
         x = np.load(Path(self.ds_path, 'vols', f'{file_id}.npy'), mmap_mode='r+')
@@ -52,17 +52,23 @@ class AsocaDataset(Dataset):
         if len(x.shape) == 3:
             x, y = x.unsqueeze(0), y.unsqueeze(0)
             if self.heart_mask: hm = hm.unsqueeze(0)
-        
+
         return x, y, hm
 
 class AsocaVolumeDataset(AsocaDataset):
     def __init__(self, *args, vol_id, **kwargs):
         super().__init__(*args, heart_mask=False, **kwargs)
         self.vol_meta = { vol_id: self.vol_meta[vol_id] }
+        self.vol_id = vol_id
 
-    def get_vol_meta(self, vol_id):
-        return self.vol_meta[int(vol_id)]
+    def get_vol_meta(self):
+        return self.vol_meta[self.vol_id]
+
+    # overrides the parent method to ensure only the current volume is accessed
+    def split_index(self, index):
+        return self.vol_id, index
 
     def __getitem__(self, index):
         x, _, _ =  super().__getitem__(index)
         return x
+

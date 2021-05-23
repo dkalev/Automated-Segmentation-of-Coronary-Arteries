@@ -26,7 +26,7 @@ def vol2patches(volume, patch_size, stride, padding, pad_value=0):
         volume = torch.from_numpy(volume).float()
 
     padded_vol = F.pad(volume, padding, value=pad_value)
-    
+
     patches = padded_vol.unfold(0, patch_size[0], stride[0]) \
                         .unfold(1, patch_size[1], stride[1]) \
                         .unfold(2, patch_size[2], stride[2])
@@ -42,15 +42,15 @@ def patches2vol(patches, patch_size, stride, padding=None):
     p = torch.cat((p[0],p[1:][:,offset[1]:].flatten(end_dim=1)))
     p = p.permute(1,2,3,0)
     p = torch.cat((p[0],p[1:][:,offset[2]:].flatten(end_dim=1)))
-    
+
     p = p.permute(1,2,0)
-    
+
     if padding:
         slicer = [slice(pad_left,-pad_right) for pad_left ,pad_right in list(zip(padding[0::2],padding[1::2]))][::-1]
         # otherwise zero padding results in a slice fetching zero items, instead of all
         slicer = [sl if not (sl.start == 0 and sl.stop == 0) else slice(None,None,None) for sl in slicer ]
         p = p[slicer]
-        
+
     return p
 
 def get_volume_pred(patches, vol_meta, patch_size, stride, normalize=True):
@@ -65,7 +65,7 @@ def get_volume_pred(patches, vol_meta, patch_size, stride, normalize=True):
 
     for i, dim in enumerate(patches.shape):
         if dim == 1: patches = patches.squeeze(i)
-    
+
     assert len(patches.shape) == 4
 
     out_shape = tuple(vol_meta['shape_patched'][:3]) + tuple(patches.shape[1:])
@@ -75,3 +75,4 @@ def get_volume_pred(patches, vol_meta, patch_size, stride, normalize=True):
     if normalize: res = torch.sigmoid(res)
     if to_numpy: res = res.numpy()
     return res
+
