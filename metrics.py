@@ -10,17 +10,25 @@ def dice_score(pred, targ, eps=1e-10):
     union = torch.sum(pred, dim=sum_dims) + torch.sum(targ, dim=sum_dims)
     return torch.mean((2. * intersection + eps) / ( union + eps ))
 
-def hausdorff_95(pred, targ, spacing):
+def hausdorff_95(preds, targs, spacing):
     # Code from https://github.com/Ramtingh/ASOCA_MICCAI2020_Evaluation/blob/master/evaluation.py
-    pred_points = spacing * np.array(np.where(pred), dtype=np.uint16).T
-    pred_kdtree = cKDTree(pred_points)
-    
-    targ_points = spacing * np.array(np.where(targ), dtype=np.uint16).T
-    targ_kdtree = cKDTree(targ_points)
-    
-    pred_targ_dist,_ = pred_kdtree.query(targ_points)
-    dist_pred_dist,_ = targ_kdtree.query(pred_points)
-    return max(np.quantile(pred_targ_dist,0.95), np.quantile(dist_pred_dist,0.95))
+    if isinstance(preds, torch.Tensor):
+        preds = preds.numpy()
+    if np.issubdtype(preds.dtype, np.integer):
+        preds = (preds > 0.5)
+    preds = preds.astype(np.uint8)
+    targs = targs.astype(np.uint8)
+
+    preds_coords = spacing * np.array(np.where(preds), dtype=np.uint8).T
+    targs_coords = spacing * np.array(np.where(targs), dtype=np.uint8).T
+
+    preds_kdtree = cKDTree(preds_coords)
+    targs_kdtree = cKDTree(targs_coords)
+
+    pt_dist,_ = preds_kdtree.query(targs_coords)
+    dp_dist,_ = targs_kdtree.query(preds_coords)
+
+    return max(np.quantile(pt_dist,0.95), np.quantile(dp_dist,0.95))
 
 def roc_auc(preds, targs):
     targs_numpy = targs.cpu().flatten().numpy().astype(int)
