@@ -21,6 +21,7 @@ class DatasetBuilder():
                 rebuild=False,
                 resample_vols=True,
                 crop_empty=False,
+                norm_type='global',
                 sourcepath='dataset/ASOCA2020Data.zip', **kwargs):
 
         self.logger = logger
@@ -39,6 +40,10 @@ class DatasetBuilder():
         self.rebuild = rebuild
         self.resample_vols = resample_vols
         self.crop_empty = crop_empty
+        if norm_type not in ['vol', 'vol_fg', 'global']:
+            raise ValueError(f'Unsupported normalization type: {norm_type}')
+        else:
+            self.norm_type = norm_type
         self.sourcepath = sourcepath
 
         super().__init__(*args, **kwargs)
@@ -121,12 +126,17 @@ class DatasetBuilder():
     def normalize_data(self, data, mask):
         if self.data_clip_range is not None:
             lb, ub = self.get_clip_bounds(data, mask)
+            data = np.clip(data, lb, ub)
+
+        if self.norm_type == 'vol_fg':
             mean = data[mask==1].mean()
             std  = data[mask==1].std()
-            data = np.clip(data, lb, ub)
-        else:
+        elif self.norm_type == 'vol':
             mean = data.mean()
             std  = data.std()
+        elif self.norm_type == 'global':
+            mean = self.stats['mean']
+            std  = self.stats['std']
 
         return (data - mean) / std
 
@@ -239,6 +249,8 @@ class DatasetBuilder():
            fg_voxels = list(tqdm(exec.map(self._get_foreground, train_paths), total=len(train_paths)))
            fg_voxels = np.concatenate(fg_voxels)
            self.stats = {
+                    'mean': np.mean(fg_voxels),
+                    'std': np.std(fg_voxels),
                     'percentile_00_5': np.percentile(fg_voxels, 0.5),
                     'percentile_99_5': np.percentile(fg_voxels, 99.5),
                    }
