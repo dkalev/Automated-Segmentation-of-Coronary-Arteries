@@ -12,10 +12,9 @@ def dice_score(pred, targ, eps=1e-10):
 
 def hausdorff_95(preds, targs, spacing):
     # Code from https://github.com/Ramtingh/ASOCA_MICCAI2020_Evaluation/blob/master/evaluation.py
-    if isinstance(preds, torch.Tensor):
-        preds = preds.numpy()
-    if np.issubdtype(preds.dtype, np.integer):
-        preds = (preds > 0.5)
+    if isinstance(preds, torch.Tensor): preds = preds.numpy()
+    if np.issubdtype(preds.dtype, np.integer): preds = (preds > 0.5)
+    if not isinstance(spacing, np.ndarray): spacing = np.array(spacing)
     preds = preds.astype(np.uint8)
     targs = targs.astype(np.uint8)
 
@@ -26,9 +25,9 @@ def hausdorff_95(preds, targs, spacing):
     targs_kdtree = cKDTree(targs_coords)
 
     pt_dist,_ = preds_kdtree.query(targs_coords)
-    dp_dist,_ = targs_kdtree.query(preds_coords)
+    tp_dist,_ = targs_kdtree.query(preds_coords)
 
-    return max(np.quantile(pt_dist,0.95), np.quantile(dp_dist,0.95))
+    return max(np.quantile(pt_dist,0.95), np.quantile(tp_dist,0.95))
 
 def roc_auc(preds, targs):
     targs_numpy = targs.cpu().flatten().numpy().astype(int)
