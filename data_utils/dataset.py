@@ -53,7 +53,7 @@ class AsocaDataset(Dataset):
             x, y = x.unsqueeze(0), y.unsqueeze(0)
             if self.heart_mask: hm = hm.unsqueeze(0)
 
-        return x, y, hm
+        return file_id, x, y, hm
 
 class AsocaVolumeDataset(AsocaDataset):
     def __init__(self, *args, vol_id, **kwargs):
@@ -69,6 +69,6 @@ class AsocaVolumeDataset(AsocaDataset):
         return self.vol_id, index
 
     def __getitem__(self, index):
-        x, _, _ =  super().__getitem__(index)
+        _, x, _, _ =  super().__getitem__(index)
         return x
 

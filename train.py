@@ -1,8 +1,10 @@
 import pytorch_lightning as pl
+from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers import TensorBoardLogger
 from data_utils import AsocaDataModule
 from models import Baseline3DCNN, UNet
 from collections import defaultdict
+from pathlib import Path
 import numpy as np
 import argparse
 import json
@@ -51,7 +53,7 @@ def combine_config(wandb_config, hparams):
     if not res['dataset']['normalize']:
         res['dataset']['data_clip_range'] = 'None'
         wandb_config.update({'dataset.data_clip_range': 'None'})
-    
+
     res['dataset']['patch_stride'] = (np.array(res['dataset']['patch_size']) - 20).tolist()
 
     return dict(res)
@@ -65,7 +67,7 @@ if __name__ == '__main__':
 
     with open(hparams['config_path'], 'r') as f:
         hparams = { **hparams, **yaml.safe_load(f) }
-    
+
     wandb.init(allow_val_change=True)
 
     hparams = combine_config(wandb.config, hparams)
@@ -79,6 +81,10 @@ if __name__ == '__main__':
         **hparams['dataset'])
 
     kwargs = { param: tparams[param] for param in ['loss_type', 'lr', 'kernel_size', 'skip_empty_patches'] }
+    with open(Path(asoca_dm.data_dir, 'dataset.json'), 'r') as f:
+        ds_meta = json.load(f)
+    kwargs['ds_meta'] = ds_meta
+
     if tparams['model'] == 'cnn':
         model = Baseline3DCNN(**kwargs)
     elif tparams['model'] == 'unet':
@@ -93,7 +99,12 @@ if __name__ == '__main__':
         'logger': get_logger(tparams),
         'auto_lr_find': tparams['auto_lr_find'],
         'gradient_clip_val': 12,
+        'callbacks': [ ModelCheckpoint(
+            monitor='valid/loss',
+            mode='min') ],
     }
+    if tparams['debug']:
+        del trainer_kwargs['callbacks']
 
     trainer = pl.Trainer(**trainer_kwargs)
 
