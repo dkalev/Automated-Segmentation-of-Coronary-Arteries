@@ -6,7 +6,7 @@ class BaseLoss(nn.Module):
     def __init__(self, normalize=True):
         super().__init__()
         self.normalize = normalize
-    
+
     def __call__(self, preds, targs):
         assert len(preds.shape) > 2
         assert preds.size() == targs.size()
@@ -23,11 +23,11 @@ class DiceLoss(BaseLoss):
         super().__init__(*args, **kwargs)
         self.eps = eps
         self.generalized = generalized
-    
+
     def forward(self, preds, targs):
         sum_dims = list(range(2, len(preds.shape)))
         intersection = torch.sum(preds * targs, dim=sum_dims)
-        denom =  preds.sum(dim=sum_dims) + targs.sum(dim=sum_dims) 
+        denom =  preds.sum(dim=sum_dims) + targs.sum(dim=sum_dims)
         if self.generalized:
             w =  1 / ((targs.sum(dim=sum_dims) + self.eps) ** 2)
             intersection = w * intersection
@@ -52,7 +52,7 @@ class DiceBCELoss(CombinedLoss):
     def __init__(self, *args, weighted_bce=True, **kwargs):
         super().__init__(*args, **kwargs)
         self.weighted_bce = weighted_bce
-        
+
     @staticmethod
     def get_weight(targs):
         ratio = (torch.sum(targs == 0) / torch.sum(targs == 1)).type_as(targs)
@@ -83,7 +83,7 @@ class DiceBCE_OHNMLoss(CombinedLoss):
     @staticmethod
     def pad_loss_batch(idxs, targs):
         # the subset of indexes selected by ohnm are later on passed to the dice loss
-        # to ensure it is complatible we have to check if the number of indexes is 
+        # to ensure it is complatible we have to check if the number of indexes is
         # divisible by batch_size * num_classes and if not to fill it up with additional indexes
         n_needed = len(idxs) % (targs.shape[0] * targs.shape[1])
         if n_needed == 0: return idxs
@@ -107,7 +107,7 @@ class DiceBCE_OHNMLoss(CombinedLoss):
     @staticmethod
     def get_samples(data, idxs):
         return data.flatten()[idxs].view(*data.shape[:2], -1)
-        
+
     def forward(self, preds, targs):
         losses = self.bce(preds, targs, reduction='none')
         idxs = self.get_idxs(losses, targs)
@@ -115,3 +115,4 @@ class DiceBCE_OHNMLoss(CombinedLoss):
         targs = self.get_samples(targs, idxs)
         losses = losses.flatten()[idxs]
         return self.dice(preds, targs) + losses.mean()
+

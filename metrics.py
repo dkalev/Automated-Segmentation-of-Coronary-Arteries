@@ -4,6 +4,7 @@ from scipy.spatial import cKDTree
 from torchmetrics.functional import auroc
 
 def dice_score(pred, targ, eps=1e-10):
+    pred, targ = pred.clone(), targ.clone()
     targ = targ.float()
     sum_dims = list(range(2, len(pred.shape)))
     intersection = torch.sum(pred * targ, dim=sum_dims)

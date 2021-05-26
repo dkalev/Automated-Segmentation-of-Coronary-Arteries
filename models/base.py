@@ -17,15 +17,14 @@ import wandb
 def get_volume(vol_id, vol, vol_meta, fn):
     return vol_id, fn(vol, vol_meta)
 
-def compute_vol_metrics(data, loss_fn):
+def compute_vol_metrics(data):
     vol_id, pred, targ, spacing = data
-    loss = loss_fn(torch.from_numpy(pred), torch.from_numpy(targ)).item()
     dice = dice_score(torch.from_numpy(pred), torch.from_numpy(targ)).item()
     # don't compute hausdorff_95 if more than 50% of the predictions are positive
     # as it is too slow and the model is not doing much anyway
     # don't compute if all the preds are zero either
     hd95 = hausdorff_95(pred, targ, spacing) if pred.mean() < 0.5 and pred.sum() > 0 else np.inf
-    return { 'vol_id': vol_id, 'loss': loss, 'dice': dice, 'hd95': hd95 }
+    return { 'vol_id': vol_id, 'dice': dice, 'hd95': hd95 }
 
 class Base(pl.LightningModule):
     def __init__(self, *args,
@@ -35,6 +34,7 @@ class Base(pl.LightningModule):
                         mask_heart=False,
                         optim_type='adam',
                         ds_meta=None,
+                        debug=False,
                         **kwargs):
         super().__init__(*args, **kwargs)
         self.crit = self.get_loss_func(loss_type)
@@ -44,6 +44,7 @@ class Base(pl.LightningModule):
 
         assert ds_meta is not None
         self.ds_meta = ds_meta
+        self.debug = debug
 
         if optim_type in ['adam', 'sgd']:
             self.optim_type = optim_type
@@ -72,11 +73,12 @@ class Base(pl.LightningModule):
 
     def log(self, name: str, value, *args, commit=False, **kwargs):
         split = 'train' if 'train' in name else 'valid'
-        wandb.log({
-            name: value,
-            'iter': getattr(self, f'{split}_iter'),
-            'epoch': self.current_epoch
-        }, commit=commit)
+        if not self.debug:
+            wandb.log({
+                name: value,
+                'iter': getattr(self, f'{split}_iter'),
+                'epoch': self.current_epoch
+            }, commit=commit)
         return super().log(name, value, *args, **kwargs)
 
     @staticmethod
@@ -180,9 +182,10 @@ class Base(pl.LightningModule):
             preds = self.crop_preds(preds, targs)
         else:
             preds = self.crop_preds(preds[-1], targs)
+        loss = self.crit(preds, targs)
         if self.mask_heart: preds = preds.masked_fill(h_masks==0, -10)
 
-        return { 'vol_ids': vol_ids, 'preds': preds, 'targs': targs }
+        return { 'vol_ids': vol_ids, 'loss': loss.item(), 'preds': preds, 'targs': targs }
 
     def validation_step_end(self, outs):
         outs['vol_ids'] = outs['vol_ids'].cpu().numpy().astype(np.uint8)
@@ -190,6 +193,9 @@ class Base(pl.LightningModule):
         outs['preds'] = outs['preds'].cpu().numpy().astype(np.uint8)
         outs['targs'] = outs['targs'].cpu().numpy().astype(np.uint8)
         return outs
+
+    def get_lr(self):
+        return self.trainer.lr_schedulers[0]['scheduler'].optimizer.param_groups[0].get('lr')
 
     def validation_epoch_end(self, outs):
         # skip if validation sanity check
@@ -202,9 +208,9 @@ class Base(pl.LightningModule):
             for i, vol_id in enumerate(batch['vol_ids']):
                 preds[vol_id].append(batch['preds'][i])
                 targs[vol_id].append(batch['targs'][i])
-        
-        preds = { vol_id: np.concatenate(batches) for vol_id, batches in preds.items() } 
-        targs = { vol_id: np.concatenate(targs[vol_id]) for vol_id in preds } 
+
+        preds = { vol_id: np.concatenate(batches) for vol_id, batches in preds.items() }
+        targs = { vol_id: np.concatenate(targs[vol_id]) for vol_id in preds }
         vol_metas = { vol_id: self.ds_meta['vol_meta'][str(vol_id)] for vol_id in preds }
 
         # all the magic here is done to ensure there are no reference to self
@@ -217,7 +223,6 @@ class Base(pl.LightningModule):
                         normalize=False)
 
         get_volume_fn = partial(get_volume, fn=get_volume_fn)
-        compute_vol_metrics_fn = partial(compute_vol_metrics, loss_fn=self.crit)
 
         with ProcessPoolExecutor(max_workers=4) as exec:
             # build prediction volumes from patches
@@ -238,14 +243,15 @@ class Base(pl.LightningModule):
 
             # compute metrics for each volume
             metrics = list(tqdm(
-                exec.map(compute_vol_metrics_fn, data),
+                exec.map(compute_vol_metrics, data),
                 total=len(data), position=2, desc='Computing metrics')
             )
 
         # finally aggregate accross volumes and log
-        self.log(f'valid/loss', np.mean([v['loss'] for v in metrics]))
+        self.log(f'valid/loss', np.mean([batch['loss'] for batch in outs]))
         self.log(f'valid/dice', np.mean([v['dice'] for v in metrics]))
-        self.log(f'valid/hd95', np.mean([v['hd95'] for v in metrics]), commit=True)
+        self.log(f'valid/hd95', np.mean([v['hd95'] for v in metrics]))
+        self.log('lr', self.get_lr(), commit=True)
 
     def configure_optimizers(self):
         if self.optim_type == 'adam':
@@ -254,8 +260,10 @@ class Base(pl.LightningModule):
             optimizer = SGD(self.parameters(), lr=self.lr, momentum=0.99, nesterov=True, weight_decay=1e-5)
         return {
             'optimizer': optimizer,
-            'scheduler': ReduceLROnPlateau(optimizer, 'min', patience=5),
-            'monitor': 'valid/loss'
+            'lr_scheduler': {
+                'scheduler': ReduceLROnPlateau(optimizer, 'min', patience=5),
+                'monitor': 'valid/loss',
+            }
         }
 
 
@@ -269,16 +277,16 @@ class Baseline3DCNN(Base):
         }
 
         block_params = [
-            {'in_channels':1, 'out_channels': 16 },
-            {'in_channels':16, 'out_channels': 32 },
-            {'in_channels':32, 'out_channels': 64 },
-            {'in_channels':64, 'out_channels': 16 },
+            {'in_channels':1, 'out_channels': 60 },
+            {'in_channels':60, 'out_channels': 60 },
+            {'in_channels':60, 'out_channels': 240 },
+            {'in_channels':240, 'out_channels': 60 },
         ]
 
         blocks = [
             nn.Sequential(
                 nn.Conv3d(**b_params, **common_params),
-                nn.BatchNorm3d(b_params['out_channels']),
+                nn.InstanceNorm3d(b_params['out_channels'], affine=True),
                 nn.ReLU(inplace=True),
             ) for b_params in block_params
         ]

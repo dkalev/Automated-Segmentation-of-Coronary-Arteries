@@ -16,11 +16,11 @@ import warnings
 warnings.filterwarnings('ignore', 'Setting attributes on ParameterDict is not supported')
 warnings.filterwarnings('ignore', 'training_step returned None')
 
-def get_logger(hparams):
+def get_logger(hparams, run_name):
     # disable logging in debug mode
     if hparams['debug']: return False
 
-    logger = TensorBoardLogger('logs', name=f"{hparams['model']}-{int(time.time())}", default_hp_metric=False)
+    logger = TensorBoardLogger('logs', name=run_name, default_hp_metric=False)
     # log hparams to tensorboard
     logger.log_hyperparams(hparams, {
         'train_f1': 0,
@@ -68,9 +68,13 @@ if __name__ == '__main__':
     with open(hparams['config_path'], 'r') as f:
         hparams = { **hparams, **yaml.safe_load(f) }
 
-    wandb.init(allow_val_change=True)
+    if not hparams['debug']:
+        wandb.init(allow_val_change=True)
+        hparams = combine_config(wandb.config, hparams)
+        run_name = wandb.run.name
+    else:
+        run_name = None
 
-    hparams = combine_config(wandb.config, hparams)
     print(json.dumps(hparams, indent=2))
 
     tparams = { 'debug': hparams['debug'], **hparams['train']}
@@ -78,12 +82,14 @@ if __name__ == '__main__':
     asoca_dm = AsocaDataModule(
         batch_size=hparams['train']['batch_size'],
         distributed=tparams['gpus'] > 1,
+        perc_per_epoch=0.25,
         **hparams['dataset'])
 
     kwargs = { param: tparams[param] for param in ['loss_type', 'lr', 'kernel_size', 'skip_empty_patches'] }
     with open(Path(asoca_dm.data_dir, 'dataset.json'), 'r') as f:
         ds_meta = json.load(f)
     kwargs['ds_meta'] = ds_meta
+    kwargs['debug'] = hparams['debug']
 
     if tparams['model'] == 'cnn':
         model = Baseline3DCNN(**kwargs)
@@ -96,12 +102,10 @@ if __name__ == '__main__':
         'max_epochs': tparams['n_epochs'],
         # disable logging in debug mode
         'checkpoint_callback': not tparams['debug'],
-        'logger': get_logger(tparams),
+        'logger': get_logger(tparams, run_name),
         'auto_lr_find': tparams['auto_lr_find'],
         'gradient_clip_val': 12,
-        'callbacks': [ ModelCheckpoint(
-            monitor='valid/loss',
-            mode='min') ],
+        'callbacks': [ ModelCheckpoint(monitor='valid/loss', mode='min') ],
     }
     if tparams['debug']:
         del trainer_kwargs['callbacks']
