@@ -6,7 +6,9 @@ from torchmetrics.functional import auroc
 def dice_score(pred, targ, eps=1e-10):
     pred, targ = pred.clone(), targ.clone()
     targ = targ.float()
-    sum_dims = list(range(2, len(pred.shape)))
+    # if a batch patches [bs,1,w,h,d] sum over spatial dimensions and average over batch
+    # otherwise sum over all dimensions e.g. volume of shape [w,h,d]
+    sum_dims = list(range(2, len(pred.shape))) if len(pred.shape) == 5 else []
     intersection = torch.sum(pred * targ, dim=sum_dims)
     union = torch.sum(pred, dim=sum_dims) + torch.sum(targ, dim=sum_dims)
     return torch.mean((2. * intersection + eps) / ( union + eps ))
