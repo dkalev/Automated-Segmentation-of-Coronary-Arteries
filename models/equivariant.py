@@ -1,6 +1,7 @@
 import e3cnn.nn as enn
 from e3cnn import gspaces
 from e3cnn.nn.field_type import FieldType
+from e3cnn.group import directsum
 import torch
 import torch.nn as nn
 import numpy as np
@@ -11,7 +12,7 @@ def kernel_so3(L: int):
     dim = sum( (2 * l + 1) ** 2 for l in range(L+1))
 
     V = np.zeros((dim, 1))
-    
+
     p = 0
     for l in range(L + 1):
         d = (2 * l + 1)
@@ -23,13 +24,13 @@ def kernel_so3(L: int):
 
 
 class FTNonLinearity(enn.EquivariantModule):
-    def __init__(self, 
+    def __init__(self,
                  F,
                  channels,
-                 *grid_args, 
+                 *grid_args,
                  non_linearity='elu',
-                 BL: int = None, 
-                 moorepenrose: bool = True, 
+                 BL: int = None,
+                 moorepenrose: bool = True,
                  **grid_kwargs):
         f"""
             Sample SO(3)'s irreps -> Apply ELU -> Fourier Transform
@@ -117,28 +118,37 @@ class ConvBlock3D(enn.EquivariantModule):
                        padding:int=0,
                        sample_type='ico',
                        nonlin_type= 'elu',
+                       regular=False,
                        **kwargs):
         super().__init__()
         channels = len(out_type.representations)
         self.in_type = in_type
+        if regular:
+            if nonlin_type == 'relu':
+                nonlin = enn.ReLU(out_type, inplace=True)
+            elif nonlin_type == 'elu':
+                nonlin = enn.ELU(out_type, inplace=True)
+        else:
+            nonlin = FTNonLinearity(2, channels, non_linearity=nonlin_type, type=sample_type)
+
         self.block = enn.SequentialModule(
             enn.R3Conv(in_type, out_type, kernel_size=kernel_size, padding=padding, **kwargs),
             enn.IIDBatchNorm3d(out_type),
-            FTNonLinearity(2, channels, non_linearity=nonlin_type, type=sample_type)
+            nonlin
         )
-        
+
         self.crop = kernel_size // 2 - padding
         self.out_channels = out_type.size
         self.out_type = out_type # needs to be there when used in enn.SequentialModule
-    
+
     def forward(self, x):
         assert x.type == self.in_type
         return self.block(x)
-    
+
     def evaluate_output_shape(self, input_shape):
         bs, _, w, h, d = input_shape
         return bs, self.out_channels, w-2*self.crop, h-2*self.crop, d-2*self.crop
-        
+
 
 class FTGPool(enn.EquivariantModule):
     def __init__(self, F: int, channels: int, *grid_args, **grid_kwargs):
@@ -188,87 +198,224 @@ class FTGPool(enn.EquivariantModule):
     def evaluate_output_shape(self, input_shape: Tuple[int, ...]) -> Tuple[int, ...]:
         return input_shape[:1] + (self.out_type.size, ) + input_shape[2:]
 
-
-# class BaselineRegularCNN(Base, enn.EquivariantModule):
-class BaselineRegularCNN(Base):
-    def __init__(self, in_channels=1, out_channels=1, max_freq=2, kernel_size=3, padding=0, **kwargs):
+class BaseEquiv(Base):
+    def __init__(self, gspace, in_channels=1, kernel_size=3, padding=0, initialize=False, **kwargs):
         super().__init__(**kwargs)
 
+        self.gspace = gspace
+        self.padding = self.parse_padding(padding, kernel_size)
+        self.input_type = enn.FieldType(self.gspace, in_channels*[self.gspace.trivial_repr])
+
+    def parse_padding(self, padding, kernel_size):
         if isinstance(padding, int):
-            self.padding = padding
+            return padding
         elif isinstance(padding, tuple) and len(padding) == 3 and all(type(p)==int for p in padding):
-            self.padding = padding
+            return padding
         elif padding == 'same':
-            self.padding = kernel_size // 2
+            return kernel_size // 2
         else:
             raise ValueError(f'Parameter padding must be int, tuple, or "same. Given: {padding}')
 
-        self.gspace = gspaces.octaOnR3()
-        self.input_type = enn.FieldType(self.gspace, in_channels*[self.gspace.trivial_repr]) 
-
-        small_type = enn.FieldType(self.gspace, 1*[self.gspace.regular_repr])
-        mid_type   = enn.FieldType(self.gspace, 2*[self.gspace.regular_repr])
-        
-        params = [
-            { 'in_type': small_type, 'out_type': small_type, 'kernel_size': kernel_size, 'padding': self.padding, 'bias': False, 'initialize': False },
-            { 'in_type': small_type, 'out_type': small_type, 'kernel_size': kernel_size, 'padding': self.padding, 'bias': False, 'initialize': False },
-            { 'in_type': small_type, 'out_type': small_type, 'kernel_size': kernel_size, 'padding': self.padding, 'bias': False, 'initialize': False },
-            # { 'in_type': small_type, 'out_type': mid_type,   'kernel_size': kernel_size, 'padding': self.padding, 'bias': False, 'initialize': False },
-            # { 'in_type': mid_type,   'out_type': small_type, 'kernel_size': kernel_size, 'padding': self.padding, 'bias': False, 'initialize': False },
-        ]
-        
-        blocks = [ enn.R3Conv(self.input_type,
-                              small_type,
-                              kernel_size=kernel_size,
-                              padding=self.padding,
-                              initialize=False) ]
-
-        for param in params:
-            blocks.append(ConvBlock3D(**param))
-        
-        self.model = enn.SequentialModule(*blocks)
-        pool_out = len(params[-1]['out_type'].representations)
-        self.pool = FTGPool(max_freq, pool_out, 'ico')
-        self.final = nn.Conv3d(pool_out, out_channels, kernel_size=kernel_size, padding=self.padding)
-
-        self.crop = 2* (kernel_size // 2 - self.padding) + sum(b.crop for b in blocks[1:])
-        
     def init(self):
+        # FIXME initialize the rest of the modules when starting to use them
         for m in self.modules():
             if isinstance(m, enn.R3Conv):
                 m.weights.data = torch.randn_like(m.weights)
-        
+
+    def pre_forward(self, x):
+        if isinstance(x, torch.Tensor):
+            x = enn.GeometricTensor(x, self.input_type)
+        assert x.type == self.input_type
+        return x
+
+    def evaluate_output_shape(self, input_shape):
+        return input_shape[..., self.crop:-self.crop, self.crop:-self.crop, self.crop: -self.crop]
+
+class CubeRegCNN(BaseEquiv):
+    def __init__(self, in_channels=1, out_channels=1, max_freq=2, kernel_size=3, padding=0, initialize=True, **kwargs):
+        gspace = gspaces.octaOnR3()
+        super().__init__(gspace, in_channels, kernel_size, padding, **kwargs)
+
+        small_type = enn.FieldType(self.gspace, 2*[self.gspace.regular_repr])
+        mid_type   = enn.FieldType(self.gspace, 8*[self.gspace.regular_repr])
+
+        self.model = enn.SequentialModule(
+            enn.R3Conv(self.input_type, small_type, kernel_size=kernel_size, padding=self.padding, bias=False, initialize=initialize),
+            enn.IIDBatchNorm3d(small_type),
+            enn.ELU(small_type, inplace=True),
+            enn.R3Conv(small_type, small_type, kernel_size=kernel_size, padding=self.padding, bias=False, initialize=initialize),
+            enn.IIDBatchNorm3d(small_type),
+            enn.ELU(small_type, inplace=True),
+            enn.R3Conv(small_type, mid_type, kernel_size=kernel_size, padding=self.padding, bias=False, initialize=initialize),
+            enn.IIDBatchNorm3d(mid_type),
+            enn.ELU(mid_type, inplace=True),
+            enn.R3Conv(mid_type, small_type, kernel_size=kernel_size, padding=self.padding, bias=False, initialize=initialize),
+            enn.IIDBatchNorm3d(small_type),
+            enn.ELU(small_type, inplace=True),
+        )
+        self.pool = enn.GroupPooling(small_type)
+        pool_out = len(small_type.representations)
+        self.final = nn.Conv3d(pool_out, out_channels, kernel_size=1)
+
+        # input layer + crop of each block
+        self.crop = 4 * (kernel_size // 2 - self.padding)
+
     def forward(self, x):
-        x = enn.GeometricTensor(x, self.input_type)
+        x = self.pre_forward(x)
         x = self.model(x)
         x = self.pool(x)
         x = x.tensor
         x = self.final(x)
         return x
-    
-    def evaluate_output_shape(self, input_shape):
-        return input_shape[..., self.crop:-self.crop, self.crop:-self.crop, self.crop: -self.crop]
+
+class IcoRegCNN(BaseEquiv):
+    def __init__(self, in_channels=1, out_channels=1, max_freq=2, kernel_size=3, padding=0, initialize=True, **kwargs):
+        gspace = gspaces.icoOnR3()
+        super().__init__(gspace, in_channels, kernel_size, padding, **kwargs)
+
+        small_type = enn.FieldType(self.gspace, 1*[self.gspace.regular_repr])
+        mid_type   = enn.FieldType(self.gspace, 4*[self.gspace.regular_repr])
+
+        self.model = enn.SequentialModule(
+            enn.R3Conv(self.input_type, small_type, kernel_size=kernel_size, padding=self.padding, bias=False, initialize=initialize),
+            enn.IIDBatchNorm3d(small_type),
+            enn.ELU(small_type, inplace=True),
+            enn.R3Conv(small_type, small_type, kernel_size=kernel_size, padding=self.padding, bias=False, initialize=initialize),
+            enn.IIDBatchNorm3d(small_type),
+            enn.ELU(small_type, inplace=True),
+            enn.R3Conv(small_type, mid_type, kernel_size=kernel_size, padding=self.padding, bias=False, initialize=initialize),
+            enn.IIDBatchNorm3d(mid_type),
+            enn.ELU(mid_type, inplace=True),
+            enn.R3Conv(mid_type, small_type, kernel_size=kernel_size, padding=self.padding, bias=False, initialize=initialize),
+            enn.IIDBatchNorm3d(small_type),
+            enn.ELU(small_type, inplace=True),
+        )
+        self.pool = enn.GroupPooling(small_type)
+        pool_out = len(small_type.representations)
+        self.final = nn.Conv3d(pool_out, out_channels, kernel_size=1)
+
+        # input layer + crop of each block
+        self.crop = 4 * (kernel_size // 2 - self.padding)
+
+    def forward(self, x):
+        x = self.pre_forward(x)
+        x = self.model(x)
+        x = self.pool(x)
+        x = x.tensor
+        x = self.final(x)
+        return x
+
+class SteerableCNN(BaseEquiv):
+    def __init__(self, in_channels=1, out_channels=1, max_freq=2, kernel_size=3, padding=0, initialize=True, **kwargs):
+        gspace = gspaces.rot3dOnR3()
+        super().__init__(gspace, in_channels, kernel_size, padding, **kwargs)
+
+        small_type = self.get_field_type(4)
+        mid_type = self.get_field_type(10)
+
+        common_kwargs = {
+                'kernel_size': kernel_size,
+                'padding': self.padding,
+                'initialize': initialize,
+        }
+        blocks = [
+            self.get_block(self.input_type, small_type, **common_kwargs),
+            self.get_block(small_type[0], small_type, **common_kwargs),
+            self.get_block(small_type[0], mid_type, **common_kwargs),
+            self.get_block(mid_type[0], small_type, **common_kwargs),
+        ]
+
+        self.model = enn.SequentialModule(*blocks)
+        self.pool = enn.NormPool(blocks[-1].out_type)
+        pool_out = self.pool.out_type.size
+        self.final = nn.Conv3d(pool_out, out_channels, kernel_size=1)
+        # input layer + crop of each block
+        self.crop = len(blocks) * (kernel_size // 2 - self.padding)
+
+    def get_field_type(self, channels, max_freq=2):
+        field_type_tr = enn.FieldType(self.gspace, channels*[self.gspace.trivial_repr])
+        field_type_gated = enn.FieldType(self.gspace, channels*[directsum([self.gspace.irrep(i) for i in range(1,max_freq+1)])])
+        field_type_gates = enn.FieldType(self.gspace, channels*[self.gspace.trivial_repr])
+        field_type = field_type_tr + field_type_gates + field_type_gated
+        return field_type, (field_type_tr, field_type_gates, field_type_gated)
+
+    def get_block(self, in_type, out_type, **kwargs):
+        out_type, (out_type_tr, out_type_gates, out_type_gated) = out_type
+
+        layers = []
+
+        layers.append( enn.R3Conv(in_type, out_type, **kwargs) )
+        layers.append( enn.IIDBatchNorm3d(out_type) )
+        layers.append(
+            enn.MultipleModule(out_type,
+                labels=[
+                    *( len(out_type_tr) * ['trivial'] + (len(out_type_gates) + len(out_type_gated)) * ['gate'] )
+                ],
+                modules=[
+                    (enn.ELU(out_type_tr, inplace=True), 'trivial'),
+                    (enn.GatedNonLinearity1(out_type_gates+out_type_gated, drop_gates=False), 'gate')
+                ]
+            )
+        )
+        return enn.SequentialModule(*layers)
+
+    def forward(self, x):
+        x = self.pre_forward(x)
+        x = self.model(x)
+        x = self.pool(x)
+        x = x.tensor
+        x = self.final(x)
+        return x
+
+class BaselineRegularCNN(BaseEquiv):
+    def __init__(self, in_channels=1, out_channels=1, max_freq=2, kernel_size=3, padding=0, initialize=True, **kwargs):
+        gspace = gspaces.octaOnR3()
+        super().__init__(gspace, in_channels, kernel_size, padding, **kwargs)
+
+        small_type = enn.FieldType(self.gspace, 1*[self.gspace.regular_repr])
+        mid_type   = enn.FieldType(self.gspace, 4*[self.gspace.regular_repr])
+
+        params = [
+            { 'in_type': small_type, 'out_type': small_type, 'kernel_size': kernel_size, 'padding': self.padding, 'bias': False, 'initialize': initialize },
+            { 'in_type': small_type, 'out_type': mid_type,   'kernel_size': kernel_size, 'padding': self.padding, 'bias': False, 'initialize': initialize },
+            { 'in_type': mid_type,   'out_type': small_type, 'kernel_size': kernel_size, 'padding': self.padding, 'bias': False, 'initialize': initialize },
+        ]
+
+        blocks = [ enn.R3Conv(self.input_type,
+                              small_type,
+                              kernel_size=kernel_size,
+                              padding=self.padding,
+                              initialize=initialize) ]
+
+        for param in params:
+            blocks.append(ConvBlock3D(**param, regular=True))
+
+        self.model = enn.SequentialModule(*blocks)
+        pool_out = len(params[-1]['out_type'].representations)
+        # self.pool = FTGPool(max_freq, pool_out, 'ico')
+        self.pool = enn.GroupPooling(params[-1]['out_type'])
+        self.final = nn.Conv3d(pool_out, out_channels, kernel_size=1)
+
+        # input layer + crop of each block
+        self.crop = (kernel_size // 2 - self.padding) + sum(b.crop for b in blocks[1:])
+
+    def forward(self, x):
+        x = self.pre_forward(x)
+        x = self.model(x)
+        x = self.pool(x)
+        x = x.tensor
+        x = self.final(x)
+        return x
 
 
 class BaselineSteerableCNN(Base):
     def __init__(self, in_channels=1, out_channels=1, max_freq=2, kernel_size=3, padding=0, **kwargs):
-        super().__init__(**kwargs)
-
-        if isinstance(padding, int):
-            self.padding = padding
-        elif isinstance(padding, tuple) and len(padding) == 3 and all(type(p)==int for p in padding):
-            self.padding = padding
-        elif padding == 'same':
-            self.padding = kernel_size // 2
-        else:
-            raise ValueError(f'Parameter padding must be int, tuple, or "same. Given: {padding}')
-
-        self.gspace = gspaces.rot3dOnR3()
-        self.input_type = enn.FieldType(self.gspace, in_channels*[self.gspace.trivial_repr]) 
+        gspace = gspaces.Rot3dOnR3()
+        super().__init__(gspace, in_channels, kernel_size, padding, **kwargs)
 
         small_type = enn.FieldType(self.gspace, 4*[self.gspace.irrep(l) for l in range(max_freq+1)])
         mid_type   = enn.FieldType(self.gspace, 16*[self.gspace.irrep(l) for l in range(max_freq+1)])
-        
+
         params = [
             { 'in_type': small_type, 'out_type': small_type, 'kernel_size': kernel_size, 'padding': self.padding, 'bias': False, 'initialize': False },
             { 'in_type': small_type, 'out_type': small_type, 'kernel_size': kernel_size, 'padding': self.padding, 'bias': False, 'initialize': False },
@@ -276,7 +423,7 @@ class BaselineSteerableCNN(Base):
             { 'in_type': small_type, 'out_type': mid_type,   'kernel_size': kernel_size, 'padding': self.padding, 'bias': False, 'initialize': False },
             { 'in_type': mid_type,   'out_type': small_type, 'kernel_size': kernel_size, 'padding': self.padding, 'bias': False, 'initialize': False },
         ]
-        
+
         blocks = [ enn.R3Conv(self.input_type,
                               small_type,
                               kernel_size=kernel_size,
@@ -285,27 +432,18 @@ class BaselineSteerableCNN(Base):
 
         for param in params:
             blocks.append(ConvBlock3D(**param))
-        
+
         self.model = enn.SequentialModule(*blocks)
         pool_out = len(params[-1]['out_type'].representations)
         self.pool = FTGPool(max_freq, pool_out, 'ico')
         self.final = nn.Conv3d(pool_out, out_channels, kernel_size=kernel_size, padding=self.padding)
 
         self.crop = 2* (kernel_size // 2 - self.padding) + sum(b.crop for b in blocks[1:])
-        
-    def init(self):
-        for m in self.modules():
-            if isinstance(m, enn.R3Conv):
-                m.weights.data = torch.randn_like(m.weights)
-        
+
     def forward(self, x):
-        x = enn.GeometricTensor(x, self.input_type)
         x = self.model(x)
         x = self.pool(x)
         x = x.tensor
         x = self.final(x)
         return x
-    
-    def evaluate_output_shape(self, input_shape):
-        return input_shape[..., self.crop:-self.crop, self.crop:-self.crop, self.crop: -self.crop]
 

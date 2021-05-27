@@ -261,7 +261,7 @@ class Base(pl.LightningModule):
         return {
             'optimizer': optimizer,
             'lr_scheduler': {
-                'scheduler': ReduceLROnPlateau(optimizer, 'min', patience=5),
+                'scheduler': ReduceLROnPlateau(optimizer, 'min', patience=10, min_lr=1e-6),
                 'monitor': 'valid/loss',
             }
         }
