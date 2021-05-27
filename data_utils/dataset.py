@@ -1,3 +1,4 @@
+import os
 import json
 from pathlib import Path
 import numpy as np
@@ -55,11 +56,23 @@ class AsocaDataset(Dataset):
 
         return file_id, x, y, hm
 
+
 class AsocaVolumeDataset(AsocaDataset):
     def __init__(self, *args, vol_id, **kwargs):
-        super().__init__(*args, heart_mask=False, **kwargs)
+        split = self.infer_split(kwargs['ds_path'], vol_id)
+        super().__init__(*args, heart_mask=False, split=split, **kwargs)
         self.vol_meta = { vol_id: self.vol_meta[vol_id] }
         self.vol_id = vol_id
+
+    def infer_split(self, ds_path, vol_id):
+        vol_ids_train = [ int(fn[:-4]) for fn in os.listdir(Path(ds_path, 'train', 'vols')) ]
+        vol_ids_valid = [ int(fn[:-4]) for fn in os.listdir(Path(ds_path, 'valid', 'vols')) ]
+        if vol_id in vol_ids_train:
+            return 'train'
+        elif vol_id in vol_ids_valid:
+            return 'valid'
+        else:
+            raise ValueError('Cannot find volume {vol_id} in train and valid splits for dataset path {ds_path}')
 
     def get_vol_meta(self):
         return self.vol_meta[self.vol_id]

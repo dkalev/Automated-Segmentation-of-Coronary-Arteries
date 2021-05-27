@@ -96,6 +96,6 @@ class AsocaDataModule(DatasetBuilder, LightningDataModule):
 
     def volume_dataloader(self, vol_id, batch_size=None):
         if batch_size is None: batch_size = self.batch_size
-        ds = AsocaVolumeDataset(self.data_dir, vol_id=vol_id)
+        ds = AsocaVolumeDataset(ds_path=self.data_dir, vol_id=vol_id)
         meta = ds.get_vol_meta()
         return DataLoader(ds, batch_size=batch_size, num_workers=12, pin_memory=True), meta
