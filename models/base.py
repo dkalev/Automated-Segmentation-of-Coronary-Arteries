@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import numpy as np
 from torch.optim import Adam, SGD
-from torch.optim.lr_scheduler import ReduceLROnPlateau
+from torch.optim.lr_scheduler import LambdaLR
 import pytorch_lightning as pl
 from loss import DiceBCELoss, DiceLoss, DiceBCE_OHNMLoss
 from concurrent.futures import ProcessPoolExecutor
@@ -261,8 +261,7 @@ class Base(pl.LightningModule):
         return {
             'optimizer': optimizer,
             'lr_scheduler': {
-                'scheduler': ReduceLROnPlateau(optimizer, 'min', patience=10, min_lr=1e-6),
-                'monitor': 'valid/loss',
+                'scheduler': LambdaLR(optimizer, lambda epoch: (1 - epoch/self.trainer.max_epochs)**0.9),
             }
         }
 

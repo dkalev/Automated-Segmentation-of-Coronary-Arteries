@@ -75,7 +75,7 @@ class AsocaDataModule(DatasetBuilder, LightningDataModule):
 
         logger.info('Done')
 
-    def train_dataloader(self, batch_size=None, num_workers=12):
+    def train_dataloader(self, batch_size=None, num_workers=4):
         if batch_size is None: batch_size = self.batch_size
         train_split = AsocaDataset(ds_path=self.data_dir, split='train')
         sampler = ASOCASampler(train_split.vol_meta,
@@ -86,7 +86,7 @@ class AsocaDataModule(DatasetBuilder, LightningDataModule):
             sampler = DistributedSamplerWrapper(sampler=sampler)
         return DataLoader(train_split, sampler=sampler, batch_size=batch_size, num_workers=num_workers, pin_memory=True)
 
-    def val_dataloader(self, batch_size=None, num_workers=12):
+    def val_dataloader(self, batch_size=None, num_workers=4):
         if batch_size is None: batch_size = self.batch_size
         valid_split = AsocaDataset(ds_path=self.data_dir, split='valid')
         sampler = ASOCASampler(valid_split.vol_meta)

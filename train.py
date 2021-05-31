@@ -1,6 +1,7 @@
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers import TensorBoardLogger
+from pytorch_lightning.plugins import DDPPlugin
 from data_utils import AsocaDataModule
 from models import Baseline3DCNN, UNet, MobileNetV2 # , BaselineRegularCNN, SteerableCNN, CubeRegCNN, IcoRegCNN
 from collections import defaultdict
@@ -86,6 +87,8 @@ if __name__ == '__main__':
         perc_per_epoch=0.25,
         **hparams['dataset'])
 
+    asoca_dm.prepare_data()
+
     kwargs = { param: tparams[param] for param in ['loss_type', 'lr', 'kernel_size', 'skip_empty_patches'] }
     with open(Path(asoca_dm.data_dir, 'dataset.json'), 'r') as f:
         ds_meta = json.load(f)
@@ -115,6 +118,7 @@ if __name__ == '__main__':
         'auto_lr_find': tparams['auto_lr_find'],
         'gradient_clip_val': 12,
         'callbacks': [ ModelCheckpoint(monitor='valid/loss', mode='min') ],
+        'plugins': DDPPlugin(find_unused_parameters=False),
     }
     if tparams['debug']:
         del trainer_kwargs['callbacks']
