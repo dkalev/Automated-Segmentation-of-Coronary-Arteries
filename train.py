@@ -2,7 +2,7 @@ import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers import TensorBoardLogger
 from data_utils import AsocaDataModule
-from models import Baseline3DCNN, UNet, BaselineRegularCNN, SteerableCNN, CubeRegCNN, IcoRegCNN
+from models import Baseline3DCNN, UNet, MobileNetV2 # , BaselineRegularCNN, SteerableCNN, CubeRegCNN, IcoRegCNN
 from collections import defaultdict
 from pathlib import Path
 import numpy as np
@@ -71,6 +71,7 @@ if __name__ == '__main__':
     if not hparams['debug']:
         wandb.init(allow_val_change=True)
         hparams = combine_config(wandb.config, hparams)
+        wandb.config.update(hparams)
         run_name = wandb.run.name
     else:
         run_name = None
@@ -95,12 +96,14 @@ if __name__ == '__main__':
         model = Baseline3DCNN(**kwargs)
     elif tparams['model'] == 'unet':
         model = UNet(**{**kwargs, **tparams['unet']})
-    elif tparams['model'] == 'cubereg':
-        model = CubeRegCNN(**kwargs)
-    elif tparams['model'] == 'icoreg':
-        model = IcoRegCNN(**kwargs)
-    elif tparams['model'] == 'scnn':
-        model = SteerableCNN(**kwargs)
+    elif tparams['model'] == 'mobilenet':
+        model = MobileNetV2(**kwargs)
+#    elif tparams['model'] == 'cubereg':
+#        model = CubeRegCNN(**kwargs)
+#    elif tparams['model'] == 'icoreg':
+#        model = IcoRegCNN(**kwargs)
+#    elif tparams['model'] == 'scnn':
+#        model = SteerableCNN(**kwargs)
 
     trainer_kwargs = {
         'gpus': tparams['gpus'],
@@ -121,3 +124,4 @@ if __name__ == '__main__':
     if tparams['auto_lr_find']: trainer.tune(model, asoca_dm)
 
     trainer.fit(model, asoca_dm)
+
