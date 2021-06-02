@@ -3,7 +3,7 @@ from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning.plugins import DDPPlugin
 from data_utils import AsocaDataModule
-from models import Baseline3DCNN, UNet, MobileNetV2 # , BaselineRegularCNN, SteerableCNN, CubeRegCNN, IcoRegCNN
+from models import Baseline3DCNN, UNet, MobileNetV2, SteerableCNN, CubeRegCNN, IcoRegCNN
 from collections import defaultdict
 from pathlib import Path
 import numpy as np
@@ -101,12 +101,12 @@ if __name__ == '__main__':
         model = UNet(**{**kwargs, **tparams['unet']})
     elif tparams['model'] == 'mobilenet':
         model = MobileNetV2(**kwargs)
-#    elif tparams['model'] == 'cubereg':
-#        model = CubeRegCNN(**kwargs)
-#    elif tparams['model'] == 'icoreg':
-#        model = IcoRegCNN(**kwargs)
-#    elif tparams['model'] == 'scnn':
-#        model = SteerableCNN(**kwargs)
+    elif tparams['model'] == 'cubereg':
+        model = CubeRegCNN(**kwargs)
+    elif tparams['model'] == 'icoreg':
+        model = IcoRegCNN(**kwargs)
+    elif tparams['model'] == 'scnn':
+        model = SteerableCNN(**kwargs)
 
     trainer_kwargs = {
         'gpus': tparams['gpus'],
@@ -118,7 +118,7 @@ if __name__ == '__main__':
         'auto_lr_find': tparams['auto_lr_find'],
         'gradient_clip_val': 12,
         'callbacks': [ ModelCheckpoint(monitor='valid/loss', mode='min') ],
-        'plugins': DDPPlugin(find_unused_parameters=False),
+        'plugins': DDPPlugin(find_unused_parameters=False) if tparams['gpus'] > 1 else None,
     }
     if tparams['debug']:
         del trainer_kwargs['callbacks']
