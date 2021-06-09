@@ -277,8 +277,8 @@ class Baseline3DCNN(Base):
 
         block_params = [
             {'in_channels':1, 'out_channels': 60 },
-            {'in_channels':60, 'out_channels': 60 },
-            {'in_channels':60, 'out_channels': 240 },
+            {'in_channels':60, 'out_channels': 120 },
+            {'in_channels':120, 'out_channels': 240 },
             {'in_channels':240, 'out_channels': 60 },
         ]
 
@@ -291,12 +291,13 @@ class Baseline3DCNN(Base):
         ]
 
         blocks.append(
-            nn.Conv3d(block_params[-1]['out_channels'], 1, kernel_size=common_params['kernel_size'])
+            nn.Conv3d(block_params[-1]['out_channels'], 1, kernel_size=1)
         )
 
-        self.crop = (common_params['kernel_size']//2) * len(blocks)
+        self.crop = (common_params['kernel_size']//2) * len(blocks[:-1]) # last layer doesn't affect crop
 
         self.model = nn.Sequential(*blocks)
 
     def forward(self, x):
         return self.model(x)
+

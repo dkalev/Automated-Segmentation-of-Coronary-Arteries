@@ -1,4 +1,3 @@
 from .base import Baseline3DCNN
 from .unet import UNet
-# from .equivariant import BaselineRegularCNN, BaselineSteerableCNN, CubeRegCNN, IcoRegCNN, SteerableCNN
-from .mobilenet import MobileNetV2
+from .equivariant import MobileNetV2, IcoRegCNN, CubeRegCNN, SteerableCNN, EquivUNet

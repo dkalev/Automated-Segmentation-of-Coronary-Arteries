@@ -72,9 +72,14 @@ class UNet(Base):
 
     def get_upsampler(self, in_channels, out_channels, kernel_size=2, stride=2):
         return nn.ConvTranspose3d(in_channels, out_channels, kernel_size=kernel_size, stride=stride, bias=False)
+#        return nn.Sequential(
+#            nn.Upsample(scale_factor=2),
+#            nn.Conv3d(in_channels, out_channels, kernel_size=1)
+#        )
 
     def get_bottleneck(self, channels):
         return nn.Sequential(OrderedDict({
+#            'conv1': nn.Conv3d(channels, channels, kernel_size=self.kernel_size, stride=2, padding=self.padding),
             'conv1': nn.Conv3d(channels, channels, kernel_size=self.kernel_size, stride=(1,2,2), padding=self.padding),
             'instnorm1': nn.InstanceNorm3d(channels, affine=True),
             'lrelu1': nn.LeakyReLU(inplace=True),
@@ -107,3 +112,4 @@ class UNet(Base):
             return outputs
         else:
             return self.final(x)
+

@@ -3,7 +3,7 @@ from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning.plugins import DDPPlugin
 from data_utils import AsocaDataModule
-from models import Baseline3DCNN, UNet, MobileNetV2, SteerableCNN, CubeRegCNN, IcoRegCNN
+from models import Baseline3DCNN, UNet, MobileNetV2, SteerableCNN, CubeRegCNN, IcoRegCNN, EquivUNet
 from collections import defaultdict
 from pathlib import Path
 import numpy as np
@@ -94,6 +94,8 @@ if __name__ == '__main__':
         ds_meta = json.load(f)
     kwargs['ds_meta'] = ds_meta
     kwargs['debug'] = hparams['debug']
+    if tparams['model'] in ['mobilenet', 'cubereg', 'icoreg', 'scnn', 'eunet']:
+        kwargs.update({'initialize': not tparams['debug']})
 
     if tparams['model'] == 'cnn':
         model = Baseline3DCNN(**kwargs)
@@ -107,6 +109,11 @@ if __name__ == '__main__':
         model = IcoRegCNN(**kwargs)
     elif tparams['model'] == 'scnn':
         model = SteerableCNN(**kwargs)
+    elif tparams['model'] == 'eunet':
+        model = EquivUNet(**kwargs)
+
+    if tparams['model'] in ['mobilenet', 'cubereg', 'icoreg', 'scnn', 'eunet']:
+        model.init()
 
     trainer_kwargs = {
         'gpus': tparams['gpus'],
@@ -127,5 +134,5 @@ if __name__ == '__main__':
 
     if tparams['auto_lr_find']: trainer.tune(model, asoca_dm)
 
-    trainer.fit(model, asoca_dm)
+    trainer.fit(model, asoca_dm.train_dataloader())
 

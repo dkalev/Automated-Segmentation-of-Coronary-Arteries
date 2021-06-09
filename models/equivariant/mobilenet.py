@@ -7,7 +7,7 @@ import torch
 import torch.nn as nn
 import numpy as np
 from typing import Tuple
-from .equivariant import BaseEquiv
+from .base import BaseEquiv
 
 
 def kernel_so3(L: int):
