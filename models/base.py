@@ -13,9 +13,14 @@ from collections import defaultdict
 from data_utils.helpers import get_volume_pred
 import wandb
 
+from itertools import repeat
 
-def get_volume(vol_id, vol, vol_meta, fn):
-    return vol_id, fn(vol, vol_meta)
+def get_volume(vol_id, patches, vol_meta, patch_size, stride):
+    try:
+        res = get_volume_pred(patches, vol_meta, patch_size, stride, normalize=False)
+        return vol_id, res
+    except Exception as e:
+        print(e)
 
 def compute_vol_metrics(data):
     vol_id, pred, targ, spacing = data
@@ -26,30 +31,9 @@ def compute_vol_metrics(data):
     hd95 = hausdorff_95(pred, targ, spacing) if pred.mean() < 0.5 and pred.sum() > 0 else np.inf
     return { 'vol_id': vol_id, 'dice': dice, 'hd95': hd95 }
 
-class Base(pl.LightningModule):
-    def __init__(self, *args,
-                        lr=1e-3,
-                        loss_type='dice',
-                        skip_empty_patches=False,
-                        mask_heart=False,
-                        optim_type='adam',
-                        ds_meta=None,
-                        debug=False,
-                        **kwargs):
-        super().__init__(*args, **kwargs)
-        self.crit = self.get_loss_func(loss_type)
-        self.lr = lr
-        self.skip_empty_patches = skip_empty_patches
-        self.mask_heart = mask_heart
 
-        assert ds_meta is not None
-        self.ds_meta = ds_meta
-        self.debug = debug
-
-        if optim_type in ['adam', 'sgd']:
-            self.optim_type = optim_type
-        else:
-            raise ValueError(f'Unsupported optimizer type: {optim_type}')
+class BasePL(pl.LightningModule):
+    """BasePL Additional helpers for a LightningModule facilitating logging with wandb"""
 
     @property
     def train_iter(self):
@@ -71,6 +55,9 @@ class Base(pl.LightningModule):
     def valid_iter(self, val=None):
         self._valid_iter = self._valid_iter + 1 if val is None else val
 
+    def get_lr(self):
+        return self.trainer.lr_schedulers[0]['scheduler'].optimizer.param_groups[0].get('lr')
+
     def log(self, name: str, value, *args, commit=False, **kwargs):
         split = 'train' if 'train' in name else 'valid'
         if not self.debug:
@@ -80,6 +67,34 @@ class Base(pl.LightningModule):
                 'epoch': self.current_epoch
             }, commit=commit)
         return super().log(name, value, *args, **kwargs)
+
+
+class Base(BasePL):
+    def __init__(self, *args,
+                        lr=1e-3,
+                        loss_type='dice',
+                        skip_empty_patches=False,
+                        mask_heart=False,
+                        optim_type='adam',
+                        ds_meta=None,
+                        debug=False,
+                        fast_val=False,
+                        **kwargs):
+        super().__init__(*args, **kwargs)
+        self.crit = self.get_loss_func(loss_type)
+        self.lr = lr
+        self.skip_empty_patches = skip_empty_patches
+        self.mask_heart = mask_heart
+
+        assert ds_meta is not None
+        self.ds_meta = ds_meta
+        self.debug = debug
+        self.fast_val = fast_val
+
+        if optim_type in ['adam', 'sgd']:
+            self.optim_type = optim_type
+        else:
+            raise ValueError(f'Unsupported optimizer type: {optim_type}')
 
     @staticmethod
     def get_loss_func(name):
@@ -185,19 +200,39 @@ class Base(pl.LightningModule):
         loss = self.crit(preds, targs)
         if self.mask_heart: preds = preds.masked_fill(h_masks==0, -10)
 
-        return { 'vol_ids': vol_ids, 'loss': loss.item(), 'preds': preds, 'targs': targs }
+        if self.fast_val:
+            sum_dims = list(range(2, len(preds.shape))) if len(preds.shape) == 5 else []
+            inter = torch.sum(preds * targs, dim=sum_dims)
+            denom = preds.sum(dim=sum_dims) + targs.sum(dim=sum_dims)
+            return { 'loss': loss.item(), 'inter': inter.item(), 'denom': denom.item() }
+        else:
+            return { 'vol_ids': vol_ids, 'loss': loss.item(), 'preds': preds, 'targs': targs }
 
     def validation_step_end(self, outs):
+        if self.fast_val: return outs
+
         outs['vol_ids'] = outs['vol_ids'].cpu().numpy().astype(np.uint8)
         outs['preds'] = self.apply_nonlinearity(outs['preds'])
         outs['preds'] = outs['preds'].cpu().numpy().astype(np.uint8)
         outs['targs'] = outs['targs'].cpu().numpy().astype(np.uint8)
         return outs
 
-    def get_lr(self):
-        return self.trainer.lr_schedulers[0]['scheduler'].optimizer.param_groups[0].get('lr')
-
     def validation_epoch_end(self, outs):
+        if self.fast_val:
+            self.validate_fast(outs)
+        else:
+            self.validate_full(outs)
+        self.log('lr', self.get_lr(), commit=True)
+
+    def validate_fast(self, outs):
+        inter = np.sum([ out['inter'] for out in outs ]) + 1e-10
+        denom = np.sum([ out['denom'] for out in outs]) + 1e-10
+        dice = 2 * inter / denom
+        loss = np.mean([ out['loss'] for out in outs ])
+        self.log('valid/dice', dice)
+        self.log('valid/loss', loss)
+
+    def validate_full(self, outs):
         # skip if validation sanity check
         if len(outs) == 2: return
 
@@ -224,10 +259,10 @@ class Base(pl.LightningModule):
 
         get_volume_fn = partial(get_volume, fn=get_volume_fn)
 
-        with ProcessPoolExecutor(max_workers=4) as exec:
+        with ProcessPoolExecutor(max_workers=6) as exec:
             # build prediction volumes from patches
             pred_vols = dict(tqdm(
-                exec.map(get_volume_fn, preds.keys(), preds.values(), vol_metas.values()),
+                exec.map(get_volume, preds.keys(), preds.values(), vol_metas.values(), repeat(self.ds_meta['stride']), repeat(self.ds_meta['stride'])),
                 total=len(preds), position=2, desc='Building preds')
             )
             # build target volumes from patches
@@ -251,7 +286,6 @@ class Base(pl.LightningModule):
         self.log(f'valid/loss', np.mean([batch['loss'] for batch in outs]))
         self.log(f'valid/dice', np.mean([v['dice'] for v in metrics]))
         self.log(f'valid/hd95', np.mean([v['hd95'] for v in metrics]))
-        self.log('lr', self.get_lr(), commit=True)
 
     def configure_optimizers(self):
         if self.optim_type == 'adam':
