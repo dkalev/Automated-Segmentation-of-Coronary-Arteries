@@ -25,7 +25,8 @@ class AsocaDataModule(DatasetBuilder, LightningDataModule):
                 patch_stride=None,
                 oversample=False,
                 distributed=False,
-                perc_per_epoch=1,
+                perc_per_epoch_train=1,
+                perc_per_epoch_val=1,
                 oversample_coef=100,
                 data_dir='dataset/processed', **kwargs):
         super().__init__(logger, *args, **kwargs)
@@ -41,7 +42,8 @@ class AsocaDataModule(DatasetBuilder, LightningDataModule):
         self.stride = patch_stride
         self.oversample = oversample
         self.data_dir = data_dir
-        self.perc_per_epoch = perc_per_epoch
+        self.perc_per_epoch_train = perc_per_epoch_train
+        self.perc_per_epoch_val = perc_per_epoch_val
         self.oversample_coef = oversample_coef
         self.distributed = distributed
 
@@ -80,7 +82,7 @@ class AsocaDataModule(DatasetBuilder, LightningDataModule):
         train_split = AsocaDataset(ds_path=self.data_dir, split='train')
         sampler = ASOCASampler(train_split.vol_meta,
                                 oversample=self.oversample,
-                                perc_per_epoch=self.perc_per_epoch,
+                                perc_per_epoch=self.perc_per_epoch_train,
                                 oversample_coef=self.oversample_coef)
         if self.distributed:
             sampler = DistributedSamplerWrapper(sampler=sampler)
@@ -89,7 +91,7 @@ class AsocaDataModule(DatasetBuilder, LightningDataModule):
     def val_dataloader(self, batch_size=None, num_workers=4):
         if batch_size is None: batch_size = self.batch_size
         valid_split = AsocaDataset(ds_path=self.data_dir, split='valid')
-        sampler = ASOCASampler(valid_split.vol_meta)
+        sampler = ASOCASampler(valid_split.vol_meta, perc_per_epoch=self.perc_per_epoch_val)
         if self.distributed:
             sampler = DistributedSamplerWrapper(sampler=sampler)
         return DataLoader(valid_split, sampler=sampler, batch_size=batch_size, num_workers=num_workers, pin_memory=True)

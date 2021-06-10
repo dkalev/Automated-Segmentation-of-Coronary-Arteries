@@ -22,14 +22,22 @@ class ASOCASampler(Sampler):
     @property
     def max_patches(self):
         if not hasattr(self, '_max_patches'):
-            self._max_patches = max([ v['n_patches'] for v in self.shapes.values() ])
+            self._max_patches = max([ self.shapes[fid]['n_patches'] for fid in self.file_ids ])
         return self._max_patches
 
     @property
     def total_patches(self):
         if not hasattr(self, '_total_patches'):
-            self._total_patches = sum([ int(v['n_patches'] * self.perc_per_epoch) for v in self.shapes.values() ])
+            self._total_patches = sum([ self.shapes[fid]['n_patches'] for fid in self.file_ids ])
         return self._total_patches
+
+    @property
+    def file_ids(self):
+        if not hasattr(self, '_file_ids'):
+            file_ids = list(self.shapes.keys())
+            file_ids = np.random.choice(file_ids, max(1, int(self.perc_per_epoch*len(file_ids))))
+            self._file_ids = self.gen.permutation(file_ids) if self.shuffle else file_ids
+        return self._file_ids
 
     def get_sample_weights(self, samples):
         if self.binary_weights:
@@ -44,26 +52,20 @@ class ASOCASampler(Sampler):
             samples = np.array(samples)
             return samples / np.sum(samples)
 
-    def get_file_ids(self):
-        file_ids = list(self.shapes.keys())
-        if self.shuffle:
-            return self.gen.permutation(file_ids)
-        else:
-            return file_ids
 
     def get_patch_idxs(self, file_id):
         meta = self.shapes[file_id]
         n_patches = meta['n_patches']
         if self.oversample:
             weights = self.get_sample_weights(meta['foreground_ratio'])
-            return self.gen.choice(range(n_patches), int(n_patches * self.perc_per_epoch), p=weights)
+            return self.gen.choice(range(n_patches), n_patches, p=weights)
         elif self.shuffle:
             return self.gen.permutation(range(n_patches))
         else:
             return range(n_patches)
 
     def __iter__(self):
-        for file_id in self.get_file_ids():
+        for file_id in self.file_ids:
             for index in self.get_patch_idxs(file_id):
                 yield file_id * self.max_patches + index
 
