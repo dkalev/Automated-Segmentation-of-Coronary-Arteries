@@ -84,12 +84,13 @@ if __name__ == '__main__':
     asoca_dm = AsocaDataModule(
         batch_size=hparams['train']['batch_size'],
         distributed=tparams['gpus'] > 1,
-        perc_per_epoch=0.25,
+        perc_per_epoch_train=0.25,
+        perc_per_epoch_val=1,
         **hparams['dataset'])
 
     asoca_dm.prepare_data()
 
-    kwargs = { param: tparams[param] for param in ['loss_type', 'lr', 'kernel_size', 'skip_empty_patches'] }
+    kwargs = { param: tparams[param] for param in ['loss_type', 'lr', 'kernel_size', 'skip_empty_patches', 'fast_val'] }
     with open(Path(asoca_dm.data_dir, 'dataset.json'), 'r') as f:
         ds_meta = json.load(f)
     kwargs['ds_meta'] = ds_meta
@@ -112,7 +113,7 @@ if __name__ == '__main__':
     elif tparams['model'] == 'eunet':
         model = EquivUNet(**kwargs)
 
-    if tparams['model'] in ['mobilenet', 'cubereg', 'icoreg', 'scnn', 'eunet']:
+    if tparams['model'] in ['mobilenet', 'cubereg', 'icoreg', 'scnn', 'eunet'] and not kwargs['initialize'] :
         model.init()
 
     trainer_kwargs = {
@@ -134,5 +135,5 @@ if __name__ == '__main__':
 
     if tparams['auto_lr_find']: trainer.tune(model, asoca_dm)
 
-    trainer.fit(model, asoca_dm.train_dataloader())
+    trainer.fit(model, asoca_dm.train_dataloader() if hparams['debug'] else asoca_dm)
 
