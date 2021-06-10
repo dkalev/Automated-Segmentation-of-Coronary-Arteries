@@ -8,8 +8,8 @@ class BaseLoss(nn.Module):
         self.normalize = normalize
 
     def __call__(self, preds, targs):
-        assert len(preds.shape) > 2
-        assert preds.size() == targs.size()
+        assert len(preds.shape) > 2, preds.shape
+        assert preds.size() == targs.size(), f'preds: {preds.size()}, targs: {targs.size()}'
 
         if self.normalize:
             preds = torch.sigmoid(preds)
