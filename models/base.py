@@ -310,7 +310,7 @@ class Baseline3DCNN(Base):
         }
 
         block_params = [
-            {'in_channels':1, 'out_channels': 60 },
+            {'in_channels':1, 'out_channels': 60 , 'stride': 2},
             {'in_channels':60, 'out_channels': 120 },
             {'in_channels':120, 'out_channels': 240 },
             {'in_channels':240, 'out_channels': 60 },
@@ -324,11 +324,13 @@ class Baseline3DCNN(Base):
             ) for b_params in block_params
         ]
 
+        blocks.append(nn.Upsample(scale_factor=2))
         blocks.append(
             nn.Conv3d(block_params[-1]['out_channels'], 1, kernel_size=1)
         )
 
         self.crop = (common_params['kernel_size']//2) * len(blocks[:-1]) # last layer doesn't affect crop
+        self.crop = 7
 
         self.model = nn.Sequential(*blocks)
 
