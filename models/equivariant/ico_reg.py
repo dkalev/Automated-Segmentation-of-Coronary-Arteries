@@ -4,6 +4,7 @@ from e3cnn.group import directsum
 import torch
 import torch.nn as nn
 from typing import Tuple
+from functools import partial
 from .base import BaseEquiv
 
 
@@ -13,29 +14,35 @@ class IcoRegCNN(BaseEquiv):
         super().__init__(gspace, in_channels, kernel_size, padding, **kwargs)
 
         small_type = enn.FieldType(self.gspace, 4*[self.gspace.regular_repr])
-        mid_type   = enn.FieldType(self.gspace, 8*[self.gspace.regular_repr])
-        large_type = enn.FieldType(self.gspace, 16*[self.gspace.regular_repr])
+        mid_type   = enn.FieldType(self.gspace, 32*[self.gspace.regular_repr])
+        final_type = enn.FieldType(self.gspace, 16*[self.gspace.fibergroup.ico_vertices_representation])
+
+        R3Conv = partial(enn.R3Conv, kernel_size=kernel_size, padding=self.padding, bias=False, initialize=initialize)
 
         self.model = enn.SequentialModule(
-            enn.R3Conv(self.input_type, small_type, kernel_size=kernel_size, padding=self.padding, bias=False, initialize=initialize),
+            R3Conv(self.input_type, small_type, stride=2),
             enn.IIDBatchNorm3d(small_type),
             enn.ELU(small_type, inplace=True),
-            enn.R3Conv(small_type, mid_type, kernel_size=kernel_size, padding=self.padding, bias=False, initialize=initialize),
+            R3Conv(small_type, small_type),
+            enn.IIDBatchNorm3d(small_type),
+            enn.ELU(small_type, inplace=True),
+            R3Conv(small_type, mid_type),
             enn.IIDBatchNorm3d(mid_type),
             enn.ELU(mid_type, inplace=True),
-            enn.R3Conv(mid_type, large_type, kernel_size=kernel_size, padding=self.padding, bias=False, initialize=initialize),
-            enn.IIDBatchNorm3d(large_type),
-            enn.ELU(large_type, inplace=True),
-            enn.R3Conv(large_type, small_type, kernel_size=kernel_size, padding=self.padding, bias=False, initialize=initialize),
-            enn.IIDBatchNorm3d(small_type),
-            enn.ELU(small_type, inplace=True),
+            R3Conv(mid_type, final_type),
+            enn.IIDBatchNorm3d(final_type),
+            enn.ELU(final_type, inplace=True),
         )
-        self.pool = enn.NormPool(small_type)
-        pool_out = len(small_type.representations)
-        self.final = nn.Conv3d(pool_out, out_channels, kernel_size=1)
+        self.pool = enn.GroupPooling(final_type)
+        pool_out = len(final_type.representations)
+        self.final = nn.Sequential(
+            nn.Upsample(scale_factor=2),
+            nn.Conv3d(pool_out, out_channels, kernel_size=1)
+        )
 
         # input layer + crop of each block
         self.crop = 4 * (kernel_size // 2 - self.padding)
+        self.crop = 7
 
     def forward(self, x):
         x = self.pre_forward(x)
