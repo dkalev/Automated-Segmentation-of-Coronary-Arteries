@@ -248,18 +248,7 @@ class Base(BasePL):
         targs = { vol_id: np.concatenate(targs[vol_id]) for vol_id in preds }
         vol_metas = { vol_id: self.ds_meta['vol_meta'][str(vol_id)] for vol_id in preds }
 
-        # all the magic here is done to ensure there are no reference to self
-        # in the functions used in the process pool and hence the base class
-        # otherwise the multiprocessing fails when spawning new process due to some issue with cuda
-        # ex: https://discuss.pytorch.org/t/runtimeerror-cannot-re-initialize-cuda-in-forked-subprocess-to-use-cuda-with-multiprocessing-you-must-use-the-spawn-start-method/14083
-        get_volume_fn = partial(get_volume_pred,
-                        patch_size=self.ds_meta['stride'],
-                        stride=self.ds_meta['stride'],
-                        normalize=False)
-
-        get_volume_fn = partial(get_volume, fn=get_volume_fn)
-
-        with ProcessPoolExecutor(max_workers=6) as exec:
+        with ProcessPoolExecutor(max_workers=4) as exec:
             # build prediction volumes from patches
             pred_vols = dict(tqdm(
                 exec.map(get_volume, preds.keys(), preds.values(), vol_metas.values(), repeat(self.ds_meta['stride']), repeat(self.ds_meta['stride'])),
@@ -267,7 +256,7 @@ class Base(BasePL):
             )
             # build target volumes from patches
             targ_vols = dict(tqdm(
-                exec.map(get_volume_fn, targs.keys(), targs.values(), vol_metas.values()),
+                exec.map(get_volume, targs.keys(), targs.values(), vol_metas.values(), repeat(self.ds_meta['stride']), repeat(self.ds_meta['stride'])),
                 total=len(targs), position=2, desc='Building targs')
             )
 

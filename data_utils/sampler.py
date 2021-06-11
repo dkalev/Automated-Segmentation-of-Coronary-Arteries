@@ -35,7 +35,7 @@ class ASOCASampler(Sampler):
     def file_ids(self):
         if not hasattr(self, '_file_ids'):
             file_ids = list(self.shapes.keys())
-            file_ids = np.random.choice(file_ids, max(1, int(self.perc_per_epoch*len(file_ids))))
+            file_ids = np.random.choice(file_ids, max(1, int(self.perc_per_epoch*len(file_ids))), replace=False)
             self._file_ids = self.gen.permutation(file_ids) if self.shuffle else file_ids
         return self._file_ids
 
