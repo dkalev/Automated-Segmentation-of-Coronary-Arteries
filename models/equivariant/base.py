@@ -1,8 +1,37 @@
 import e3cnn.nn as enn
 import torch
 from collections import Counter
+from e3cnn.group import directsum
 from typing import Tuple
 from ..base import Base
+
+
+class GatedFieldType(enn.FieldType):
+    def __init__(self, gspace, trivials, gated, gates):
+        self.trivials = trivials
+        self.gated = gated
+        self.gates = gates
+
+        super().__init__(gspace, (self.trivials + self.gated + self.gates).representations)
+
+    def no_gates(self):
+        return enn.FieldType(self.gspace, (self.trivials + self.gated).representations)
+
+    @classmethod
+    def build(cls, gspace, channels, max_freq=2):
+        dim = sum([2*l+1 for l in range(max_freq+1)]) + 1 # + 1 for gate per directsum of higher frequencies
+        n_irreps, n_rem = channels // dim, channels % dim
+        n_triv = n_irreps + n_rem
+
+        trivials = enn.FieldType(gspace, n_triv*[gspace.trivial_repr])
+        gated = enn.FieldType(gspace, n_irreps*[directsum([gspace.irrep(i) for i in range(1,max_freq+1)])])
+        gates = enn.FieldType(gspace, n_irreps*[gspace.trivial_repr])
+
+        return cls(gspace, trivials, gated, gates)
+
+    def __add__(self, other: 'GatedFieldType') -> 'GatedFieldType':
+        assert self.gspace == other.gspace
+        return GatedFieldType(self.gspace, self.trivials + other.trivials, self.gated + other.gated, self.gates + other.gates)
 
 
 class BaseEquiv(Base):
@@ -41,12 +70,6 @@ class BaseEquiv(Base):
         buffers = sum(n.numel() for b in self.buffers())
         total = 2 * trainable_params + non_trainable_params + buffers
         return total
-
-    @staticmethod
-    def get_ftype_repr(ftype: enn.FieldType, delim:str=' '):
-        rep_counts = Counter([ rep.name for rep in ftype.representations ])
-        rep_counts = sorted([f'{x[0]}: {x[1]}' for x in list(rep_counts.items())])
-        return (delim).join(rep_counts)
 
     def evaluate_output_shape(self, input_shape):
         return input_shape[..., self.crop:-self.crop, self.crop:-self.crop, self.crop: -self.crop]

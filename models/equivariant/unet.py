@@ -1,40 +1,11 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from .base import BaseEquiv
+from .base import BaseEquiv, GatedFieldType
 from collections import OrderedDict
 import e3cnn.nn as enn
 import e3cnn.gspaces as gspaces
-from e3cnn.group import directsum
 from typing import Iterable
-
-
-class GatedFieldType(enn.FieldType):
-    def __init__(self, gspace, trivials, gated, gates):
-        self.trivials = trivials
-        self.gated = gated
-        self.gates = gates
-
-        super().__init__(gspace, (self.trivials + self.gates + self.gated).representations)
-
-    def no_gates(self):
-        return enn.FieldType(self.gspace, (self.trivials + self.gated).representations)
-
-    @classmethod
-    def build(cls, gspace, channels, max_freq=2):
-        dim = sum([2*l+1 for l in range(max_freq+1)]) + 1 # + 1 for gate per directsum of higher frequencies
-        n_irreps, n_rem = channels // dim, channels % dim
-        n_triv = n_irreps + n_rem
-
-        trivials = enn.FieldType(gspace, n_triv*[gspace.trivial_repr])
-        gated = enn.FieldType(gspace, n_irreps*[directsum([gspace.irrep(i) for i in range(1,max_freq+1)])])
-        gates = enn.FieldType(gspace, n_irreps*[gspace.trivial_repr])
-
-        return cls(gspace, trivials, gated, gates)
-
-    def __add__(self, other: 'GatedFieldType') -> 'GatedFieldType':
-        assert self.gspace == other.gspace
-        return GatedFieldType(self.gspace, self.trivials + other.trivials, self.gated + other.gated, self.gates + other.gates)
 
 
 class EquivUNet(BaseEquiv):
@@ -43,7 +14,6 @@ class EquivUNet(BaseEquiv):
         super().__init__(gspace, *args, **kwargs)
 
         self.kernel_size = kernel_size
-        self.padding = kernel_size // 2
         self.deep_supervision = deep_supervision
         self.initialize = initialize
 
@@ -106,11 +76,11 @@ class EquivUNet(BaseEquiv):
     def get_nonlin(ftype):
         return enn.MultipleModule(ftype,
             labels=[
-                *( len(ftype.trivials) * ['trivial'] + (len(ftype.gates) + len(ftype.gated)) * ['gate'] )
+                *( len(ftype.trivials) * ['trivial'] + (len(ftype.gated) + len(ftype.gates)) * ['gate'] )
             ],
             modules=[
                 (enn.ELU(ftype.trivials, inplace=True), 'trivial'),
-                (enn.GatedNonLinearity1(ftype.gates+ftype.gated), 'gate')
+                (enn.GatedNonLinearity1(ftype.gated+ftype.gates, len(ftype.gated)*['gated']+len(ftype.gates)*['gate']), 'gate')
             ]
         )
 

@@ -4,7 +4,7 @@ from e3cnn.group import directsum
 import torch
 import torch.nn as nn
 from typing import Tuple
-from .base import BaseEquiv
+from .base import BaseEquiv, GatedFieldType
 
 
 class SteerableCNN(BaseEquiv):
@@ -12,38 +12,35 @@ class SteerableCNN(BaseEquiv):
         gspace = gspaces.rot3dOnR3()
         super().__init__(gspace, in_channels, kernel_size, padding, **kwargs)
 
-        small_type = self.get_field_type(4)
-        mid_type = self.get_field_type(10)
+        small_type = GatedFieldType.build(gspace, 60)
+        mid_type = GatedFieldType.build(gspace, 240)
+        final_type = GatedFieldType.build(gspace, 240, max_freq=1)
 
         common_kwargs = {
                 'kernel_size': kernel_size,
                 'padding': self.padding,
                 'initialize': initialize,
         }
+
         blocks = [
-            self.get_block(self.input_type, small_type, **common_kwargs),
-            self.get_block(small_type[0], small_type, **common_kwargs),
-            self.get_block(small_type[0], mid_type, **common_kwargs),
-            self.get_block(mid_type[0], small_type, **common_kwargs),
+            self.get_block(self.input_type, small_type, **common_kwargs, stride=2),
+            self.get_block(small_type.no_gates(), small_type, **common_kwargs),
+            self.get_block(small_type.no_gates(), mid_type, **common_kwargs),
+            self.get_block(mid_type.no_gates(), final_type, **common_kwargs),
         ]
 
         self.model = enn.SequentialModule(*blocks)
         self.pool = enn.NormPool(blocks[-1].out_type)
         pool_out = self.pool.out_type.size
-        self.final = nn.Conv3d(pool_out, out_channels, kernel_size=1)
+        self.final = nn.Sequential(
+            nn.Upsample(scale_factor=2),
+            nn.Conv3d(pool_out, out_channels, kernel_size=1)
+        )
         # input layer + crop of each block
         self.crop = len(blocks) * (kernel_size // 2 - self.padding)
-
-    def get_field_type(self, channels, max_freq=2):
-        field_type_tr = enn.FieldType(self.gspace, channels*[self.gspace.trivial_repr])
-        field_type_gated = enn.FieldType(self.gspace, channels*[directsum([self.gspace.irrep(i) for i in range(1,max_freq+1)])])
-        field_type_gates = enn.FieldType(self.gspace, channels*[self.gspace.trivial_repr])
-        field_type = field_type_tr + field_type_gates + field_type_gated
-        return field_type, (field_type_tr, field_type_gates, field_type_gated)
+        self.crop = 7
 
     def get_block(self, in_type, out_type, **kwargs):
-        out_type, (out_type_tr, out_type_gates, out_type_gated) = out_type
-
         layers = []
 
         layers.append( enn.R3Conv(in_type, out_type, **kwargs) )
@@ -51,11 +48,12 @@ class SteerableCNN(BaseEquiv):
         layers.append(
             enn.MultipleModule(out_type,
                 labels=[
-                    *( len(out_type_tr) * ['trivial'] + (len(out_type_gates) + len(out_type_gated)) * ['gate'] )
+                    *( len(out_type.trivials) * ['trivial'] + (len(out_type.gated) + len(out_type.gates)) * ['gate'] )
                 ],
                 modules=[
-                    (enn.ELU(out_type_tr, inplace=True), 'trivial'),
-                    (enn.GatedNonLinearity1(out_type_gates+out_type_gated, drop_gates=False), 'gate')
+                    (enn.ELU(out_type.trivials, inplace=True), 'trivial'),
+                    (enn.GatedNonLinearity1(out_type.gated+out_type.gates,
+                                            len(out_type.gated)*['gated']+len(out_type.gates)*['gate']), 'gate')
                 ]
             )
         )
