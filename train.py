@@ -116,6 +116,12 @@ if __name__ == '__main__':
     if tparams['model'] in ['mobilenet', 'cubereg', 'icoreg', 'scnn', 'eunet'] and not kwargs['initialize'] :
         model.init()
 
+    if not hparams['train']['fast_val']:
+        assert np.allclose(
+            hparams['dataset']['patch_size'],
+            np.array(hparams['dataset']['patch_stride']) + 2*model.crop
+        ), f"patch_size: {hparams['dataset']['patch_size']}, stride: {hparams['dataset']['patch_stride']}, crop: {model.crop}"
+
     trainer_kwargs = {
         'gpus': tparams['gpus'],
         'accelerator': 'ddp' if tparams['gpus'] > 1 else None,
@@ -135,5 +141,5 @@ if __name__ == '__main__':
 
     if tparams['auto_lr_find']: trainer.tune(model, asoca_dm)
 
-    trainer.fit(model, asoca_dm.train_dataloader() if hparams['debug'] else asoca_dm)
+    trainer.fit(model, asoca_dm) #.train_dataloader() if hparams['debug'] else asoca_dm)
 
