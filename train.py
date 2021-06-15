@@ -59,13 +59,11 @@ def combine_config(wandb_config, hparams):
             entry = entry[k]
         entry[param] = val
 
-    res = update_dict(hparams, res)
+    res = update_dict(res, hparams)
 
     if not res['dataset']['normalize']:
         res['dataset']['data_clip_range'] = 'None'
         wandb_config.update({'dataset.data_clip_range': 'None'})
-
-    res['dataset']['patch_stride'] = (np.array(res['dataset']['patch_size']) - 20).tolist()
 
     return dict(res)
 
