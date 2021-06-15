@@ -7,6 +7,7 @@ from models import Baseline3DCNN, UNet, MobileNetV2, SteerableCNN, CubeRegCNN, I
 from collections import defaultdict
 from pathlib import Path
 import numpy as np
+from copy import deepcopy
 import argparse
 import json
 import yaml
@@ -34,22 +35,31 @@ def get_logger(hparams, run_name):
 
     return logger
 
+def update_dict(source, target):
+    res = deepcopy(target)
+    for key, val in source.items():
+        if isinstance(val, dict) and key in res:
+            res[key] = update_dict(val, res[key])
+        else:
+            res[key] = val
+    return res
+
 def combine_config(wandb_config, hparams):
     if len(wandb_config.keys()) == 0: return hparams
 
     res = defaultdict(dict)
 
     for key, val in wandb_config.items():
-        group, param = key.split('.')
-        res[group][param] = val
+        path = key.split('.')
+        path, param = path[:-1], path[-1]
+        entry = res
+        for k in path:
+            if k not in entry:
+                entry[k] = {}
+            entry = entry[k]
+        entry[param] = val
 
-    for group in hparams:
-        if not isinstance(hparams[group], dict):
-            res[group] = hparams[group]
-            continue
-        for key, val in hparams[group].items():
-            if key not in res[group]:
-                res[group][key] = val
+    res = update_dict(hparams, res)
 
     if not res['dataset']['normalize']:
         res['dataset']['data_clip_range'] = 'None'
@@ -84,8 +94,6 @@ if __name__ == '__main__':
     asoca_dm = AsocaDataModule(
         batch_size=hparams['train']['batch_size'],
         distributed=tparams['gpus'] > 1,
-        perc_per_epoch_train=0.25,
-        perc_per_epoch_val=1,
         **hparams['dataset'])
 
     asoca_dm.prepare_data()
