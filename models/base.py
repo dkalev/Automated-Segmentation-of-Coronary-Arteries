@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.distributed as dist
 import numpy as np
 from torch.optim import Adam, SGD
 from torch.optim.lr_scheduler import LambdaLR
@@ -58,15 +59,15 @@ class BasePL(pl.LightningModule):
     def get_lr(self):
         return self.trainer.lr_schedulers[0]['scheduler'].optimizer.param_groups[0].get('lr')
 
-    def log(self, name: str, value, *args, commit=False, **kwargs):
-        split = 'train' if 'train' in name else 'valid'
-        if not self.debug:
-            wandb.log({
-                name: value,
-                'iter': getattr(self, f'{split}_iter'),
-                'epoch': self.current_epoch
-            }, commit=commit)
-        return super().log(name, value, *args, **kwargs)
+    # def log(self, name: str, value, *args, commit=False, **kwargs):
+        # split = 'train' if 'train' in name else 'valid'
+        # if not self.debug:
+            # wandb.log({
+                # name: value,
+                # 'iter': getattr(self, f'{split}_iter'),
+                # 'epoch': self.current_epoch
+            # }, commit=commit)
+        # return super().log(name, value, *args, sync_dist=dist.is_initialized(), **kwargs)
 
 
 class Base(BasePL):
@@ -186,7 +187,7 @@ class Base(BasePL):
         preds = self.apply_nonlinearity(preds)
 
         self.log(f'train/loss', outs['loss'].item())
-        self.log(f'train/dice', dice_score(preds, targs).item(), prog_bar=True, commit=True)
+        self.log(f'train/dice', dice_score(preds, targs).item(), prog_bar=True) #, commit=True)
         return outs['loss']
 
     def validation_step(self, batch, batch_idx):
@@ -218,11 +219,19 @@ class Base(BasePL):
         return outs
 
     def validation_epoch_end(self, outs):
+        # gather predictions from all gpus/nodes in distributed mode
+        if dist.is_initialized():
+            output = [ None for _ in range(dist.get_world_size()) ]
+            dist.barrier()
+            dist.all_gather_object(output, outs)
+            if dist.get_rank() != 0: return
+            outs = [out[0] for out in output]
+
         if self.fast_val:
             self.validate_fast(outs)
         else:
             self.validate_full(outs)
-        self.log('lr', self.get_lr(), commit=True)
+        self.log('lr', self.get_lr()) #, commit=True)
 
     def validate_fast(self, outs):
         inter = np.sum([ out['inter'] for out in outs ]) + 1e-10
@@ -234,7 +243,7 @@ class Base(BasePL):
 
     def validate_full(self, outs):
         # skip if validation sanity check
-        if len(outs) == 2: return
+        if len(outs) < 10: return
 
         # gather all patches per volume
         preds = defaultdict(list)

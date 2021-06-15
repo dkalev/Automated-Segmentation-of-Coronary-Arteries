@@ -1,7 +1,8 @@
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
-from pytorch_lightning.loggers import TensorBoardLogger
+from pytorch_lightning.loggers import TensorBoardLogger, WandbLogger
 from pytorch_lightning.plugins import DDPPlugin
+import torch.distributed as dist
 from data_utils import AsocaDataModule
 from models import Baseline3DCNN, UNet, MobileNetV2, SteerableCNN, CubeRegCNN, IcoRegCNN, EquivUNet
 from collections import defaultdict
@@ -70,7 +71,7 @@ if __name__ == '__main__':
         hparams = { **hparams, **yaml.safe_load(f) }
 
     if not hparams['debug']:
-        wandb.init(allow_val_change=True)
+        # wandb.init(allow_val_change=True)
         hparams = combine_config(wandb.config, hparams)
         wandb.config.update(hparams)
         run_name = wandb.run.name
@@ -128,7 +129,7 @@ if __name__ == '__main__':
         'max_epochs': tparams['n_epochs'],
         # disable logging in debug mode
         'checkpoint_callback': not tparams['debug'],
-        'logger': get_logger(tparams, run_name),
+        'logger': WandbLogger(), # get_logger(tparams, run_name),
         'auto_lr_find': tparams['auto_lr_find'],
         'gradient_clip_val': 12,
         'callbacks': [ ModelCheckpoint(monitor='valid/loss', mode='min') ],
@@ -138,6 +139,9 @@ if __name__ == '__main__':
         del trainer_kwargs['callbacks']
 
     trainer = pl.Trainer(**trainer_kwargs)
+
+    # if not dist.is_initialized() or dist.get_rank() == 0:
+        # wandb.init(config=hparams)
 
     if tparams['auto_lr_find']: trainer.tune(model, asoca_dm)
 
