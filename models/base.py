@@ -290,7 +290,7 @@ class Base(BasePL):
 
 
 class Baseline3DCNN(Base):
-    def __init__(self, *args, kernel_size=5, **kwargs):
+    def __init__(self, *args, kernel_size=5, arch='default', **kwargs):
         super().__init__(*args, **kwargs)
 
         common_params = {
@@ -298,12 +298,29 @@ class Baseline3DCNN(Base):
             'bias': False,
         }
 
-        block_params = [
-            {'in_channels':1, 'out_channels': 60 , 'stride': 2},
-            {'in_channels':60, 'out_channels': 120 },
-            {'in_channels':120, 'out_channels': 240 },
-            {'in_channels':240, 'out_channels': 60 },
-        ]
+        if arch == 'default':
+            block_params = [
+                {'in_channels': 1, 'out_channels': 60 },
+                {'in_channels': 60, 'out_channels': 120 },
+                {'in_channels': 120, 'out_channels': 120 },
+                {'in_channels': 120, 'out_channels': 60 },
+            ]
+        elif arch == 'strided':
+            block_params = [
+                {'in_channels': 1, 'out_channels': 180 , 'stride': 2 },
+                {'in_channels': 180, 'out_channels': 360  },
+                {'in_channels': 360, 'out_channels': 720 },
+                {'in_channels': 720, 'out_channels': 720 },
+                {'in_channels': 720, 'out_channels': 720 },
+                {'in_channels': 720, 'out_channels': 120 },
+            ]
+        elif arch == 'patch64':
+            block_params = [
+                {'in_channels': 1, 'out_channels': 120 },
+                {'in_channels': 120, 'out_channels': 120 },
+                {'in_channels': 120, 'out_channels': 360 },
+                {'in_channels': 360, 'out_channels': 120 },
+            ]
 
         blocks = [
             nn.Sequential(
@@ -313,13 +330,15 @@ class Baseline3DCNN(Base):
             ) for b_params in block_params
         ]
 
-        blocks.append(nn.Upsample(scale_factor=2))
+        if arch == 'strided': blocks.append(nn.Upsample(scale_factor=2))
         blocks.append(
             nn.Conv3d(block_params[-1]['out_channels'], 1, kernel_size=1)
         )
 
-        self.crop = (common_params['kernel_size']//2) * len(blocks[:-1]) # last layer doesn't affect crop
-        self.crop = 7
+        if arch == 'strided':
+            self.crop = 11
+        else:
+            self.crop = (common_params['kernel_size']//2) * len(blocks[:-1]) # last layer doesn't affect crop
 
         self.model = nn.Sequential(*blocks)
 

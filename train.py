@@ -99,7 +99,7 @@ if __name__ == '__main__':
         kwargs.update({'initialize': not tparams['debug']})
 
     if tparams['model'] == 'cnn':
-        model = Baseline3DCNN(**kwargs)
+        model = Baseline3DCNN(**{**kwargs, **tparams['cnn']})
     elif tparams['model'] == 'unet':
         model = UNet(**{**kwargs, **tparams['unet']})
     elif tparams['model'] == 'mobilenet':
@@ -117,10 +117,12 @@ if __name__ == '__main__':
         model.init()
 
     if not hparams['train']['fast_val']:
+        psize = hparams['dataset']['patch_size']
+        pstride  = hparams['dataset']['patch_stride']
         assert np.allclose(
             hparams['dataset']['patch_size'],
             np.array(hparams['dataset']['patch_stride']) + 2*model.crop
-        ), f"patch_size: {hparams['dataset']['patch_size']}, stride: {hparams['dataset']['patch_stride']}, crop: {model.crop}"
+        ), f"patch_size: {psize}, stride: {pstride}, crop: {model.crop}, expected stride: {psize[0] - 2*model.crop}"
 
     trainer_kwargs = {
         'gpus': tparams['gpus'],
