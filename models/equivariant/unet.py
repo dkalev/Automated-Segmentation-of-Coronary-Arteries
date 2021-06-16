@@ -9,9 +9,9 @@ from typing import Iterable
 
 
 class EquivUNet(BaseEquiv):
-    def __init__(self, *args, kernel_size=3, deep_supervision=False, initialize=True, **kwargs):
+    def __init__(self, *args, kernel_size=3, padding='same', deep_supervision=False, initialize=True, **kwargs):
         gspace = gspaces.rot3dOnR3()
-        super().__init__(gspace, *args, **kwargs)
+        super().__init__(gspace, *args, kernel_size=kernel_size, padding=padding, **kwargs)
 
         self.kernel_size = kernel_size
         self.deep_supervision = deep_supervision
@@ -22,7 +22,6 @@ class EquivUNet(BaseEquiv):
         type128 = GatedFieldType.build(gspace, 128)
         type256 = GatedFieldType.build(gspace, 256)
         type320 = GatedFieldType.build(gspace, 320)
-        self.types = [type32, type64, type128, type256]
 
         self.encoders = nn.ModuleList([
             self.get_encoder(self.input_type, type32, stride=1),
@@ -70,7 +69,7 @@ class EquivUNet(BaseEquiv):
             torch.FloatTensor([0., 0.06666667, 0.13333333, 0.26666667, 0.53333333])
         )
 
-        self.crop = len(self.encoders) * 2 * self.padding # 2 conv per encoder
+        self.crop = len(self.encoders) * 2 * (self.kernel_size//2) # 2 conv per encoder
 
     @staticmethod
     def get_nonlin(ftype):
