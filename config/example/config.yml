@@ -29,4 +29,6 @@ train:
     unet:
         deep_supervision: false
     cnn:
-        arch: default
+        arch: default # one of [default, strided, patch64]
+    steerable:
+        type: 'so3' # one of [trivial, spherical, so4]
