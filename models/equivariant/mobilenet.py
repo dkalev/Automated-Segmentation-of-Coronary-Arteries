@@ -1,107 +1,12 @@
 import e3cnn.nn as enn
 from e3cnn import gspaces
-from e3cnn.gspaces import GSpace3D
 from e3cnn.nn.field_type import FieldType
 from e3cnn.group import directsum
 import torch
 import torch.nn as nn
 import numpy as np
 from typing import Tuple
-from .base import BaseEquiv
-
-
-def kernel_so3(L: int):
-    dims = [ 2 * l + 1 for l in range(L+1)]
-    V = np.concatenate([np.eye(d).flatten() * d for d in dims])
-    V /= np.linalg.norm(V)
-    return V
-
-def kernel_sphere(gspace: GSpace3D, L: int):
-    sphere = gspace.fibergroup.homspace((False, -1))
-    identity = gspace.fibergroup.identity
-
-    return np.concatenate([
-        sphere.basis(identity, (l,), (0,)).flatten() * np.sqrt(2*l+1)
-        for l in range(L+1)
-    ])
-
-class FTNonLinearity(enn.EquivariantModule):
-    def __init__(self,
-                 max_freq_in,
-                 channels,
-                 *grid_args,
-                 non_linearity='elu',
-                 max_freq_out: int = None,
-                 moorepenrose: bool = True,
-                 **grid_kwargs):
-        f"""
-            Sample SO(3)'s irreps -> Apply ELU -> Fourier Transform
-
-            features = (max frequency, number of channels)
-            max_freq_out = bandlimit for output (the final fourier transform); if None (by default), use the max_frequency in `features`
-            *grid_args, **grid_kwargs = argument to generate the grids over SO(3); see `SO3.grid()`
-            moorepenrose = keep it True
-
-        """
-        super().__init__()
-        self.channels = channels
-        if hasattr(torch.nn.functional, non_linearity):
-            self.non_linearity = getattr(torch.nn.functional, non_linearity)
-        else:
-            raise ValueError(f'Unsupported non-linearity type: {non_linearity}')
-
-        max_freq_out = max_freq_out or max_freq_in
-
-        gs = gspaces.rot3dOnR3()
-        rho = gs.fibergroup.bl_regular_representation(max_freq_in)
-        rho_bl = gs.fibergroup.bl_regular_representation(max_freq_out)
-
-        self.dim = rho.size
-        self.in_type  = enn.FieldType(gs, [rho]*channels)
-        self.out_type = enn.FieldType(gs, [rho_bl]*channels)
-
-        grid = gs.fibergroup.grid(*grid_args, **grid_kwargs)
-
-        # sensing matrix
-        kernel = kernel_so3(max_freq_in)
-        A = np.stack([ kernel @ rho(g).T for g in grid ])
-        A /= np.sqrt(len(A))
-
-        # reconstruction matrix
-        kernel_bl = kernel_so3(max_freq_out)
-        Abl = np.stack([ kernel_bl @ rho_bl(g).T for g in grid ])
-        Abl /= np.sqrt(len(Abl))
-
-        eps = 1e-8
-        if moorepenrose:
-            A_inv = np.linalg.inv(Abl.T @ Abl + eps * np.eye(Abl.shape[1])) @ Abl.T
-        else:
-            A_inv = Abl.T
-
-        self.register_buffer('A', torch.tensor(A, dtype=torch.get_default_dtype()))
-        self.register_buffer('Ainv', torch.tensor(A_inv, dtype=torch.get_default_dtype()))
-
-    def forward(self, x: enn.GeometricTensor):
-        assert x.type == self.in_type
-
-        in_shape = (x.shape[0], self.channels, self.dim, *x.shape[2:])
-        out_shape = (x.shape[0], len(self.Ainv) * self.channels, *x.shape[2:])
-
-        # IFT
-        x = x.tensor.view(in_shape)
-        _x = torch.einsum( 'gi,bfi...->bfg...', self.A, x)
-
-        _y = self.non_linearity(_x, inplace=True)
-
-        # FT
-        y = torch.einsum( 'ig,bfg...->bfi...', self.Ainv, _y)
-        y = y.reshape(out_shape)
-        return enn.GeometricTensor(y, self.out_type)
-
-    def evaluate_output_shape(self, input_shape: Tuple[int, ...]) -> Tuple[int, ...]:
-        shape = [*input_shape]
-        shape[1] = shape[1] // self.A.shape[1] * self.Ainv.shape[0]
-        return tuple(shape)
+from .base import BaseEquiv, FTNonLinearity, kernel_so3, kernel_sphere
 
 
 class FTGPool(enn.EquivariantModule):
@@ -153,6 +58,100 @@ class FTGPool(enn.EquivariantModule):
     def evaluate_output_shape(self, input_shape: Tuple[int, ...]) -> Tuple[int, ...]:
         return input_shape[:1] + (self.out_type.size, ) + input_shape[2:]
 
+class SphericalFTElu(enn.EquivariantModule):
+
+    def __init__(self, features: Tuple[int, int], *grid_args, BL: int = None, moorepenrose: bool = True, **grid_kwargs):
+        f"""
+            Sample spherical harmonics -> Apply ELU -> Fourier Transform
+
+            features = (max frequency, number of channels)
+            BL = bandlimit for output (the final fourier transform); if None (by default), use the max_frequency in `features`
+            *grid_args, **grid_kwargs = argument to generate the grids over the sphere; see `SO3.sphere_grid()`
+            moorepenrose = keep it True
+
+        """
+        super(SphericalFTElu, self).__init__()
+
+        F, channels = features
+        self.gs = gspaces.rot3dOnR3()
+        G: SO3 = self.gs.fibergroup
+        rho = G.bl_quotient_representation(F, (False, -1))
+        self._C = channels
+        self._size = rho.size
+        self.in_type = enn.FieldType(self.gs, [rho]*channels)
+
+        kernel = self._kernel_sphere(F).reshape(1, -1)
+
+        if BL is None:
+            BL = F
+
+        rho_bl = self.gs.fibergroup.bl_quotient_representation(BL, (False, -1))
+        self.out_type = enn.FieldType(self.gs, [rho_bl]*channels)
+
+        grid = self.gs.fibergroup.sphere_grid(*grid_args, **grid_kwargs)
+
+        # sensing matrix
+        A = [
+            kernel @ rho(g).T for g in grid
+        ]
+
+        A = np.concatenate(A, axis=0) / np.sqrt(len(A))
+
+        # reconstruction matrix
+        kernel_bl = self._kernel_sphere(BL).reshape(1, -1)
+        Abl = [
+            kernel_bl @ rho_bl(g).T for g in grid
+        ]
+        Abl = np.concatenate(Abl, axis=0) / np.sqrt(len(Abl))
+        eps = 1e-8
+        if moorepenrose:
+            A_inv = np.linalg.inv(Abl.T @ Abl + eps * np.eye(Abl.shape[1])) @ Abl.T
+        else:
+            A_inv = Abl.T
+
+        self.register_buffer('A', torch.tensor(A, dtype=torch.get_default_dtype()))
+        self.register_buffer('Ainv', torch.tensor(A_inv, dtype=torch.get_default_dtype()))
+
+    def _kernel_sphere(self, F: int):
+
+        sphere = self.gs.fibergroup.homspace((False, -1))
+
+        basis = []
+        for l in range(F+1):
+            basis.append(
+                sphere.basis(self.gs.fibergroup.identity, (l,), (0,)).flatten() * np.sqrt(2*l+1)
+            )
+        return np.concatenate(basis)
+
+    def forward(self, x: enn.GeometricTensor):
+
+        assert x.type == self.in_type
+
+        shape = x.shape
+        x = x.tensor.view(shape[0], self._C, self._size, *shape[2:])
+
+        _x = torch.einsum(
+            'gi,bfi...->bfg...', self.A, x
+        )
+
+        _y = torch.nn.functional.elu(_x)
+
+        y = torch.einsum(
+            'ig,bfg...->bfi...', self.Ainv, _y
+        )
+
+        outshape = (shape[0], self.Ainv.shape[0] * self._C, *shape[2:])
+        y = y.reshape(outshape)
+
+        return enn.GeometricTensor(y, self.out_type)
+
+    def evaluate_output_shape(self, input_shape: Tuple[int, ...]) -> Tuple[int, ...]:
+        shape = [*input_shape]
+        shape[1] = shape[1] // self.A.shape[1] * self.Ainv.shape[0]
+        return tuple(shape)
+
+    def export(self):
+        raise NotImplementedError()
 
 class ResBlock(enn.EquivariantModule):
     def __init__(self,
@@ -209,17 +208,23 @@ class MobileNetV2(BaseEquiv):
         super().__init__(gspace, in_channels, kernel_size, padding, **kwargs)
 
         layer_params = [
-                {'type': enn.FieldType(self.gspace, [self.bl_sphere(bb_freq)] * 2),  'channels': 4,    'stride': 2},
+                {'type': enn.FieldType(self.gspace, [self.bl_sphere(bb_freq)] * 2),  'channels': 4,    'stride': 1},
                 {'type': enn.FieldType(self.gspace, [self.bl_sphere(bb_freq)] * 3),  'channels': 4,    'stride': 1},
-#                {'type': enn.FieldType(self.gspace, [self.bl_sphere(bb_freq)] * 6), 'channels': 8,    'stride': 2},
-#                {'type': enn.FieldType(self.gspace, [self.bl_sphere(bb_freq)] * 6), 'channels': 16,   'stride': 2},
-#                {'type': enn.FieldType(self.gspace, [self.bl_sphere(bb_freq)] * 8), 'channels': 8,    'stride': 2},
-#                {'type': enn.FieldType(self.gspace, [self.bl_sphere(bb_freq)] * 8), 'channels': 16,   'stride': 1},
-#                {'type': enn.FieldType(self.gspace, [self.bl_sphere(bb_freq)] * 8), 'channels': None, 'stride': 1},
+                {'type': enn.FieldType(self.gspace, [self.bl_sphere(bb_freq)] * 6), 'channels': 8,    'stride': 1},
+                {'type': enn.FieldType(self.gspace, [self.bl_sphere(bb_freq)] * 6), 'channels': 16,   'stride': 1},
+                {'type': enn.FieldType(self.gspace, [self.bl_sphere(bb_freq)] * 8), 'channels': 8,    'stride': 1},
+                {'type': enn.FieldType(self.gspace, [self.bl_sphere(bb_freq)] * 8), 'channels': 16,   'stride': 1},
+                {'type': enn.FieldType(self.gspace, [self.bl_sphere(bb_freq)] * 8), 'channels': None, 'stride': 1},
         ]
 
         blocks = [
-            enn.R3Conv(self.input_type, layer_params[0]['type'], kernel_size=kernel_size, padding=self.padding, bias=False, initialize=initialize)
+            enn.R3Conv(self.input_type,
+                       layer_params[0]['type'],
+                       kernel_size=kernel_size,
+                       padding=self.padding,
+                       stride=2,
+                       bias=False,
+                       initialize=initialize)
         ]
 
         for in_params, out_params in zip(layer_params, layer_params[1:]):
@@ -231,10 +236,14 @@ class MobileNetV2(BaseEquiv):
                                     initialize=initialize) )
 
         self.model = enn.SequentialModule(*blocks)
+        # self.pool = SphericalFTElu((2, 128), 'ico', BL=0)
         self.pool = FTGPool(blocks[-1].out_type, 'cube')
         # self.pool = FTNonLinearity(bb_freq, 8, 'cube', max_freq_out=0)
         pool_out = self.pool.out_type.size
-        self.final = nn.Conv3d(pool_out, 1, kernel_size=1)
+        self.final = nn.Sequential(
+            nn.Upsample(scale_factor=2),
+            nn.Conv3d(pool_out, 1, kernel_size=1)
+        )
 
         self.crop = 32
 

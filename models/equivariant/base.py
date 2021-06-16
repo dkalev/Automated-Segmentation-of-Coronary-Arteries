@@ -1,5 +1,8 @@
 import e3cnn.nn as enn
+import e3cnn.gspaces as gspaces
+from e3cnn.gspaces import GSpace3D
 import torch
+import numpy as np
 from collections import Counter
 from e3cnn.group import directsum
 from typing import Tuple
@@ -32,6 +35,115 @@ class GatedFieldType(enn.FieldType):
     def __add__(self, other: 'GatedFieldType') -> 'GatedFieldType':
         assert self.gspace == other.gspace
         return GatedFieldType(self.gspace, self.trivials + other.trivials, self.gated + other.gated, self.gates + other.gates)
+
+
+def kernel_so3(L: int):
+    dims = [ 2 * l + 1 for l in range(L+1)]
+    V = np.concatenate([np.eye(d).flatten() * d for d in dims])
+    V /= np.linalg.norm(V)
+    return V
+
+def kernel_sphere(gspace: GSpace3D, L: int):
+    sphere = gspace.fibergroup.homspace((False, -1))
+    identity = gspace.fibergroup.identity
+
+    return np.concatenate([
+        sphere.basis(identity, (l,), (0,)).flatten() * np.sqrt(2*l+1)
+        for l in range(L+1)
+    ])
+
+
+class FTNonLinearity(enn.EquivariantModule):
+    def __init__(self,
+                 max_freq_in,
+                 channels,
+                 *grid_args,
+                 non_linearity='elu',
+                 max_freq_out: int = None,
+                 moorepenrose: bool = True,
+                 spherical: bool = False,
+                 **grid_kwargs):
+        f"""
+            Sample SO(3)'s irreps -> Apply ELU -> Fourier Transform
+
+            features = (max frequency, number of channels)
+            max_freq_out = bandlimit for output (the final fourier transform); if None (by default), use the max_frequency in `features`
+            *grid_args, **grid_kwargs = argument to generate the grids over SO(3); see `SO3.grid()`
+            moorepenrose = keep it True
+
+        """
+        super().__init__()
+        self.channels = channels
+        self.spherical = spherical
+        if hasattr(torch.nn.functional, non_linearity):
+            self.non_linearity = getattr(torch.nn.functional, non_linearity)
+        else:
+            raise ValueError(f'Unsupported non-linearity type: {non_linearity}')
+
+        max_freq_out = max_freq_out or max_freq_in
+
+        self.gspace = gspaces.rot3dOnR3()
+        rho = self.get_representation(max_freq_in)
+        rho_bl = self.get_representation(max_freq_out)
+
+        self.dim = rho.size
+        self.in_type  = enn.FieldType(self.gspace, [rho]*channels)
+        self.out_type = enn.FieldType(self.gspace, [rho_bl]*channels)
+
+        grid = self.gspace.fibergroup.grid(*grid_args, **grid_kwargs)
+
+        # sensing matrix
+        kernel = self.get_kernel(max_freq_in)
+        A = np.stack([ kernel @ rho(g).T for g in grid ])
+        A /= np.sqrt(len(A))
+
+        # reconstruction matrix
+        kernel_bl = self.get_kernel(max_freq_out)
+        Abl = np.stack([ kernel_bl @ rho_bl(g).T for g in grid ])
+        Abl /= np.sqrt(len(Abl))
+
+        eps = 1e-8
+        if moorepenrose:
+            A_inv = np.linalg.inv(Abl.T @ Abl + eps * np.eye(Abl.shape[1])) @ Abl.T
+        else:
+            A_inv = Abl.T
+
+        self.register_buffer('A', torch.tensor(A, dtype=torch.get_default_dtype()))
+        self.register_buffer('Ainv', torch.tensor(A_inv, dtype=torch.get_default_dtype()))
+
+    def get_representation(self, max_freq):
+        if self.spherical:
+            return self.gspace.fibergroup.bl_quotient_representation(max_freq, (False, -1))
+        else:
+            return self.gspace.fibergroup.bl_regular_representation(max_freq)
+
+    def get_kernel(self, max_freq):
+        if self.spherical:
+            return kernel_sphere(self.gspace, max_freq)
+        else:
+            return kernel_so3(max_freq)
+
+    def forward(self, x: enn.GeometricTensor):
+        assert x.type == self.in_type
+
+        in_shape = (x.shape[0], self.channels, self.dim, *x.shape[2:])
+        out_shape = (x.shape[0], len(self.Ainv) * self.channels, *x.shape[2:])
+
+        # IFT
+        x = x.tensor.view(in_shape)
+        _x = torch.einsum( 'gi,bfi...->bfg...', self.A, x)
+
+        _y = self.non_linearity(_x, inplace=True)
+
+        # FT
+        y = torch.einsum( 'ig,bfg...->bfi...', self.Ainv, _y)
+        y = y.reshape(out_shape)
+        return enn.GeometricTensor(y, self.out_type)
+
+    def evaluate_output_shape(self, input_shape: Tuple[int, ...]) -> Tuple[int, ...]:
+        shape = [*input_shape]
+        shape[1] = shape[1] // self.A.shape[1] * self.Ainv.shape[0]
+        return tuple(shape)
 
 
 class BaseEquiv(Base):
