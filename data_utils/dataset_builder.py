@@ -22,7 +22,7 @@ class DatasetBuilder():
                 resample_vols=True,
                 crop_empty=False,
                 norm_type='global',
-                sourcepath='dataset/ASOCA2020Data.zip', **kwargs):
+                sourcepath='ASOCA2020Data.zip', **kwargs):
 
         self.logger = logger
         self.num_workers = num_workers

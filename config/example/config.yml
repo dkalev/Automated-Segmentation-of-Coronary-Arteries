@@ -7,6 +7,8 @@ dataset:
     resample_vols: false
     oversample: true
     crop_empty: false
+    data_dir: dataset/processed
+    sourcepath: dataset/ASOCA2020Data.zip
 train:
     model: eunet # one of [cnn, unet, cubereg, icoreg, scnn, mobilenet, eunet]
     gpus: 1
@@ -24,3 +26,5 @@ train:
     # model specific params
     unet:
         deep_supervision: false
+    cnn:
+        arch: default

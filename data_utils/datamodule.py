@@ -28,8 +28,10 @@ class AsocaDataModule(DatasetBuilder, LightningDataModule):
                 perc_per_epoch_train=1,
                 perc_per_epoch_val=1,
                 oversample_coef=100,
-                data_dir='dataset/processed', **kwargs):
-        super().__init__(logger, *args, **kwargs)
+                data_dir='dataset/processed',
+                sourcepath='dataset/ASOCA2020Data.zip', **kwargs):
+        super().__init__(logger, *args, sourcepath=sourcepath, **kwargs)
+
         self.batch_size = batch_size
 
         if isinstance(patch_size, int): patch_size = np.array([patch_size, patch_size, patch_size])
@@ -41,11 +43,11 @@ class AsocaDataModule(DatasetBuilder, LightningDataModule):
             patch_stride = np.array([patch_stride, patch_stride, patch_stride])
         self.stride = patch_stride
         self.oversample = oversample
-        self.data_dir = data_dir
         self.perc_per_epoch_train = perc_per_epoch_train
         self.perc_per_epoch_val = perc_per_epoch_val
         self.oversample_coef = oversample_coef
         self.distributed = distributed
+        self.data_dir = data_dir
 
     def prepare_data(self):
         if not self.is_valid():
