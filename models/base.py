@@ -4,7 +4,7 @@ import numpy as np
 from torch.optim import Adam, SGD
 from torch.optim.lr_scheduler import LambdaLR
 import pytorch_lightning as pl
-from loss import DiceBCELoss, DiceLoss, DiceBCE_OHNMLoss
+from loss import DiceBCELoss, BCEWrappedLoss, DiceLoss, DiceBCE_OHNMLoss
 from concurrent.futures import ProcessPoolExecutor
 from tqdm import tqdm
 from functools import partial
@@ -99,7 +99,7 @@ class Base(BasePL):
     @staticmethod
     def get_loss_func(name):
         if name == 'bce':
-            return nn.BCEWithLogitsLoss()
+            return BCEWrappedLoss()
         elif name == 'dice':
             return DiceLoss()
         elif name == 'gdice':

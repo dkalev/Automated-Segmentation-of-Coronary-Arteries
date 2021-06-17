@@ -18,6 +18,15 @@ class BaseLoss(nn.Module):
         return self.forward(preds, targs)
 
 
+class BCEWrappedLoss(BaseLoss):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.crit = nn.BCEWithLogitsLoss()
+
+    def forward(self, preds, targs):
+        return self.crit(preds, targs)
+
+
 class DiceLoss(BaseLoss):
     def __init__(self, *args, generalized=False, eps=1e-10, **kwargs):
         super().__init__(*args, **kwargs)
