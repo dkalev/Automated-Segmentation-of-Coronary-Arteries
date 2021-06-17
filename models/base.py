@@ -6,13 +6,13 @@ from torch.optim.lr_scheduler import LambdaLR
 import pytorch_lightning as pl
 from loss import DiceBCELoss, BCEWrappedLoss, DiceLoss, DiceBCE_OHNMLoss
 from concurrent.futures import ProcessPoolExecutor
+from multiprocessing import get_context
 from tqdm import tqdm
 from functools import partial
 from metrics import dice_score, hausdorff_95
 from collections import defaultdict
 from data_utils.helpers import get_volume_pred
 import wandb
-
 from itertools import repeat
 
 def get_volume(vol_id, patches, vol_meta, patch_size, stride):
@@ -248,7 +248,7 @@ class Base(BasePL):
         targs = { vol_id: np.concatenate(targs[vol_id]) for vol_id in preds }
         vol_metas = { vol_id: self.ds_meta['vol_meta'][str(vol_id)] for vol_id in preds }
 
-        with ProcessPoolExecutor(max_workers=4) as exec:
+        with ProcessPoolExecutor(max_workers=4, mp_context=get_context('spawn')) as exec:
             # build prediction volumes from patches
             pred_vols = dict(tqdm(
                 exec.map(get_volume, preds.keys(), preds.values(), vol_metas.values(), repeat(self.ds_meta['stride']), repeat(self.ds_meta['stride'])),
