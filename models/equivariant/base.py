@@ -90,7 +90,7 @@ class FTNonLinearity(enn.EquivariantModule):
         self.in_type  = enn.FieldType(self.gspace, [rho]*channels)
         self.out_type = enn.FieldType(self.gspace, [rho_bl]*channels)
 
-        grid = self.gspace.fibergroup.grid(*grid_args, **grid_kwargs)
+        grid = self.get_grid(*grid_args, **grid_kwargs)
 
         # sensing matrix
         kernel = self.get_kernel(max_freq_in)
@@ -117,6 +117,12 @@ class FTNonLinearity(enn.EquivariantModule):
         else:
             return self.gspace.fibergroup.bl_regular_representation(max_freq)
 
+    def get_grid(self, *grid_args, **grid_kwargs):
+        if self.spherical:
+            return self.gspace.fibergroup.sphere_grid(*grid_args, **grid_kwargs)
+        else:
+            return self.gspace.fibergroup.grid(*grid_args, **grid_kwargs)
+        
     def get_kernel(self, max_freq):
         if self.spherical:
             return kernel_sphere(self.gspace, max_freq)
