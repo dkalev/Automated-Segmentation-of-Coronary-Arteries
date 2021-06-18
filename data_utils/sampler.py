@@ -31,13 +31,23 @@ class ASOCASampler(Sampler):
             self._total_patches = sum([ self.shapes[fid]['n_patches'] for fid in self.file_ids ])
         return self._total_patches
 
+    def sample_ids(self):
+        file_ids = list(self.shapes.keys())
+        n_samples = max(1, int(self.perc_per_epoch*len(file_ids)))
+        if n_samples < len(file_ids):
+            file_ids = np.random.choice(file_ids, n_samples, replace=False)
+        file_ids = self.gen.permutation(file_ids) if self.shuffle else file_ids
+        return file_ids.tolist()
+
     @property
     def file_ids(self):
         if not hasattr(self, '_file_ids'):
-            file_ids = list(self.shapes.keys())
-            file_ids = np.random.choice(file_ids, max(1, int(self.perc_per_epoch*len(file_ids))), replace=False)
-            self._file_ids = self.gen.permutation(file_ids) if self.shuffle else file_ids
+            self._file_ids = self.sample_ids()
         return self._file_ids
+
+    @file_ids.setter
+    def file_ids(self, val):
+        self._file_ids = val
 
     def get_sample_weights(self, samples):
         if self.binary_weights:

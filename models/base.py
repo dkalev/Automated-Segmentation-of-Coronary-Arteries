@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.distributed as dist
 import numpy as np
 from torch.optim import Adam, SGD
 from torch.optim.lr_scheduler import LambdaLR
@@ -58,16 +59,6 @@ class BasePL(pl.LightningModule):
     def get_lr(self):
         return self.trainer.lr_schedulers[0]['scheduler'].optimizer.param_groups[0].get('lr')
 
-    def log(self, name: str, value, *args, commit=False, **kwargs):
-        split = 'train' if 'train' in name else 'valid'
-        if not self.debug:
-            wandb.log({
-                name: value,
-                'iter': getattr(self, f'{split}_iter'),
-                'epoch': self.current_epoch
-            }, commit=commit)
-        return super().log(name, value, *args, **kwargs)
-
 
 class Base(BasePL):
     def __init__(self, *args,
@@ -95,6 +86,31 @@ class Base(BasePL):
             self.optim_type = optim_type
         else:
             raise ValueError(f'Unsupported optimizer type: {optim_type}')
+
+    def on_train_epoch_start(self):
+        train_sampler = self.trainer.train_dataloader.sampler
+        valid_sampler = self.trainer.val_dataloaders[0].sampler
+
+        if dist.is_initialized():
+            # ensure that each process validates on the same subset of files in ddp
+            # otherwise because a sampler is initialized in each process and ddp distributes
+            # the data further we end up with partial predictions for e.g. 4 volumes instead of
+            # full predictions (all patches) for the 2 required volumes
+
+            # wrapped in distributed sampler
+            train_sampler = train_sampler.sampler
+            valid_sampler = valid_sampler.sampler
+            if dist.get_rank() == 0:
+                file_ids = valid_sampler.sample_ids()
+                for dest_rank in range(1, dist.get_world_size()):
+                    dist.send(torch.tensor(file_ids, device='cuda', dtype=torch.uint8), dest_rank)
+            else:
+                file_ids = torch.empty(len(valid_sampler.sample_ids()), device='cuda', dtype=torch.uint8)
+                dist.recv(file_ids, src=0)
+                file_ids = file_ids.tolist()
+        else:
+            file_ids = valid_sampler.sample_ids()
+        valid_sampler.file_ids = file_ids
 
     @staticmethod
     def get_loss_func(name):
@@ -160,6 +176,7 @@ class Base(BasePL):
 
     def training_step(self, batch, batch_idx):
         self.train_iter += 1
+        self.log(f'train/iter', self.train_iter)
         x, targs, h_masks = self.prepare_batch(batch, 'train')
         if len(x) == 0: return
 
@@ -186,11 +203,12 @@ class Base(BasePL):
         preds = self.apply_nonlinearity(preds)
 
         self.log(f'train/loss', outs['loss'].item())
-        self.log(f'train/dice', dice_score(preds, targs).item(), prog_bar=True, commit=True)
+        self.log(f'train/dice', dice_score(preds, targs).item(), prog_bar=True)
         return outs['loss']
 
     def validation_step(self, batch, batch_idx):
         self.valid_iter += 1
+        self.log(f'valid/iter', self.valid_iter)
         vol_ids, x, targs, h_masks = self.prepare_batch(batch, 'valid')
         preds = self(x)
         if isinstance(preds, torch.Tensor):
@@ -217,12 +235,30 @@ class Base(BasePL):
         outs['targs'] = outs['targs'].cpu().numpy().astype(np.uint8)
         return outs
 
+    def gather_preds(self, outs):
+        # gather predictions from all gpus/nodes in distributed mode
+        output = [ None for _ in range(dist.get_world_size())  ]
+        dist.barrier()
+        dist.all_gather_object(output, outs)
+
+        outs = []
+        for out in output:
+            outs.extend(out)
+        return outs
+
     def validation_epoch_end(self, outs):
+        if dist.is_initialized():
+            outs = self.gather_preds(outs)
+
+            if dist.get_rank() != 0:
+                self.log('valid/loss', np.inf)
+                return
+
         if self.fast_val:
             self.validate_fast(outs)
         else:
             self.validate_full(outs)
-        self.log('lr', self.get_lr(), commit=True)
+        self.log('lr', self.get_lr())
 
     def validate_fast(self, outs):
         inter = np.sum([ out['inter'] for out in outs ]) + 1e-10
@@ -234,7 +270,7 @@ class Base(BasePL):
 
     def validate_full(self, outs):
         # skip if validation sanity check
-        if len(outs) == 2: return
+        if len(outs) < 10: return
 
         # gather all patches per volume
         preds = defaultdict(list)
