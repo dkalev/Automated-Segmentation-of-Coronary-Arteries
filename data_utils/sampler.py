@@ -51,7 +51,7 @@ class ASOCASampler(Sampler):
 
     def get_sample_weights(self, samples):
         if self.binary_weights:
-            samples = np.round(samples).astype(int)
+            samples = np.array(samples>0).astype(int)
             p = np.ones_like(samples) / len(samples)
             if not np.any(samples): return p # if all zeros sample uniformly
             ratio = len(samples[samples==0]) / len(samples[samples==1]) * self.alpha

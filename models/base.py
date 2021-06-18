@@ -122,7 +122,6 @@ class Base(BasePL):
 
         train_sampler.file_ids = file_ids_t
         valid_sampler.file_ids = file_ids_v
-        print(train_sampler.file_ids, valid_sampler.file_ids, dist.get_rank() if dist.is_initialized() else 'nope')
 
     @staticmethod
     def get_loss_func(name):
