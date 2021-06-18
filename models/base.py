@@ -87,42 +87,6 @@ class Base(BasePL):
         else:
             raise ValueError(f'Unsupported optimizer type: {optim_type}')
 
-    def on_train_epoch_start(self):
-        train_sampler = self.trainer.train_dataloader.sampler
-        valid_sampler = self.trainer.val_dataloaders[0].sampler
-
-        if dist.is_initialized():
-            # ensure that each process validates on the same subset of files in ddp
-            # otherwise because a sampler is initialized in each process and ddp distributes
-            # the data further we end up with partial predictions for e.g. 4 volumes instead of
-            # full predictions (all patches) for the 2 required volumes
-
-            # wrapped in distributed sampler
-            train_sampler = train_sampler.sampler
-            valid_sampler = valid_sampler.sampler
-            if dist.get_rank() == 0:
-                file_ids_t = train_sampler.sample_ids()
-                file_ids_v = valid_sampler.sample_ids()
-
-                for dest_rank in range(1, dist.get_world_size()):
-                    dist.send(torch.tensor(file_ids_t, device='cuda', dtype=torch.uint8), dest_rank, tag=0)
-                    dist.send(torch.tensor(file_ids_v, device='cuda', dtype=torch.uint8), dest_rank, tag=1)
-            else:
-                file_ids_t = torch.empty(len(train_sampler.sample_ids()), device='cuda', dtype=torch.uint8)
-                file_ids_v = torch.empty(len(valid_sampler.sample_ids()), device='cuda', dtype=torch.uint8)
-
-                dist.recv(file_ids_t, src=0, tag=0)
-                dist.recv(file_ids_v, src=0, tag=1)
-
-                file_ids_t = file_ids_t.tolist()
-                file_ids_v = file_ids_v.tolist()
-        else:
-            file_ids_t = train_sampler.sample_ids()
-            file_ids_v = valid_sampler.sample_ids()
-
-        train_sampler.file_ids = file_ids_t
-        valid_sampler.file_ids = file_ids_v
-
     @staticmethod
     def get_loss_func(name):
         if name == 'bce':
@@ -162,20 +126,13 @@ class Base(BasePL):
 
     def prepare_batch(self, batch, split='train'):
         # crops targets to match the padding lost in the convolutions
-        vol_ids, x, targs, hmasks = batch
+        x, targs, (vol_ids, patch_ids) = batch
         targs = self.crop_data(targs)
-        if hmasks is None:
-            self.mask_heart = False
-        else:
-            hmasks = self.crop_data(hmasks)
         if self.skip_empty_patches and split == 'train':
             non_empty = self.get_empty_patch_mask(targs)
-            x, targs, hmasks = x[non_empty], targs[non_empty], hmasks[non_empty]
+            x, targs = x[non_empty], targs[non_empty]
 
-        if split == 'train':
-            return x, targs, hmasks
-        else:
-            return vol_ids, x, targs, hmasks
+        return x, targs, (vol_ids, patch_ids)
 
     def apply_nonlinearity(self, preds):
         if isinstance(preds, torch.Tensor):
@@ -185,28 +142,71 @@ class Base(BasePL):
         preds = preds.round()
         return preds
 
+    def on_train_epoch_start(self):
+        train_sampler = self.trainer.train_dataloader.sampler
+        valid_sampler = self.trainer.val_dataloaders[0].sampler
+
+        if dist.is_initialized():
+            # ensure that each process validates on the same subset of files in ddp
+            # otherwise because a sampler is initialized in each process and ddp distributes
+            # the data further we end up with partial predictions for e.g. 4 volumes instead of
+            # full predictions (all patches) for the 2 required volumes
+
+            # wrapped in distributed sampler
+            train_sampler = train_sampler.sampler
+            valid_sampler = valid_sampler.sampler
+            if dist.get_rank() == 0:
+                file_ids_t = train_sampler.sample_ids()
+                file_ids_v = valid_sampler.sample_ids()
+
+                for dest_rank in range(1, dist.get_world_size()):
+                    dist.send(torch.tensor(file_ids_t, device='cuda', dtype=torch.uint8), dest_rank, tag=0)
+                    dist.send(torch.tensor(file_ids_v, device='cuda', dtype=torch.uint8), dest_rank, tag=1)
+            else:
+                file_ids_t = torch.empty(len(train_sampler.sample_ids()), device='cuda', dtype=torch.uint8)
+                file_ids_v = torch.empty(len(valid_sampler.sample_ids()), device='cuda', dtype=torch.uint8)
+
+                dist.recv(file_ids_t, src=0, tag=0)
+                dist.recv(file_ids_v, src=0, tag=1)
+
+                file_ids_t = file_ids_t.tolist()
+                file_ids_v = file_ids_v.tolist()
+        else:
+            file_ids_t = train_sampler.sample_ids()
+            file_ids_v = valid_sampler.sample_ids()
+
+        train_sampler.file_ids = file_ids_t
+        valid_sampler.file_ids = file_ids_v
+
     def training_step(self, batch, batch_idx):
         self.train_iter += 1
         self.log(f'train/iter', self.train_iter)
-        x, targs, h_masks = self.prepare_batch(batch, 'train')
+        x, targs, (vol_ids, patch_ids) = self.prepare_batch(batch, 'train')
         if len(x) == 0: return
 
         preds = self(x)
         if isinstance(preds, torch.Tensor):
             preds = self.crop_preds(preds, targs)
-            if self.mask_heart: preds = preds.masked_fill(h_masks==0, -10)
             loss = self.crit(preds, targs)
         else:
             preds = [ self.crop_preds(pred, targs) for pred in preds ]
-            if self.mask_heart:
-                preds = [ pred.masked_fill(h_masks==0, -10) for pred in preds ]
             losses = torch.stack([ self.crit(pred, targs) for pred in preds ])
             if hasattr(self, 'ds_weight'):
                 loss = losses @ self.ds_weight
             else:
                 loss = losses.mean()
 
-        return { 'loss': loss, 'preds': preds, 'targs': targs }
+        with torch.no_grad():
+            losses_per_patch = [ self.crit(preds[i], targs[i]).item() for i in range(len(preds)) ]
+
+        return {
+            'vol_ids': vol_ids,
+            'patch_ids': patch_ids,
+            'losses_per_patch': losses_per_patch,
+            'loss': loss,
+            'preds': preds,
+            'targs': targs
+        }
 
     def training_step_end(self, outs):
         if outs is None: return
@@ -215,19 +215,34 @@ class Base(BasePL):
 
         self.log(f'train/loss', outs['loss'].item())
         self.log(f'train/dice', dice_score(preds, targs).item(), prog_bar=True)
-        return outs['loss']
+        return {
+            'vol_ids': outs['vol_ids'].detach().cpu().numpy(),
+            'patch_ids': outs['patch_ids'].detach().cpu().numpy(),
+            'losses_per_patch': outs['losses_per_patch'],
+            'loss': outs['loss'],
+        }
+
+    def training_epoch_end(self, outs):
+        losses = defaultdict(dict)
+        for batch in outs:
+            for i, patch_id in enumerate(batch['patch_ids']):
+                vol_id = batch['vol_ids'][i]
+                loss = batch['losses_per_patch'][i]
+                losses[vol_id][patch_id] = loss
+
+        train_sampler = self.trainer.train_dataloader.sampler
+        train_sampler.update_patch_weights(losses)
 
     def validation_step(self, batch, batch_idx):
         self.valid_iter += 1
         self.log(f'valid/iter', self.valid_iter)
-        vol_ids, x, targs, h_masks = self.prepare_batch(batch, 'valid')
+        x, targs, (vol_ids, _)  = self.prepare_batch(batch, 'valid')
         preds = self(x)
         if isinstance(preds, torch.Tensor):
             preds = self.crop_preds(preds, targs)
         else:
             preds = self.crop_preds(preds[-1], targs)
         loss = self.crit(preds, targs)
-        if self.mask_heart: preds = preds.masked_fill(h_masks==0, -10)
 
         if self.fast_val:
             sum_dims = list(range(2, len(preds.shape))) if len(preds.shape) == 5 else []
@@ -246,17 +261,6 @@ class Base(BasePL):
         outs['targs'] = outs['targs'].cpu().numpy().astype(np.uint8)
         return outs
 
-    def gather_preds(self, outs):
-        # gather predictions from all gpus/nodes in distributed mode
-        output = [ None for _ in range(dist.get_world_size())  ]
-        dist.barrier()
-        dist.all_gather_object(output, outs)
-
-        outs = []
-        for out in output:
-            outs.extend(out)
-        return outs
-
     def validation_epoch_end(self, outs):
         if dist.is_initialized():
             outs = self.gather_preds(outs)
@@ -270,6 +274,17 @@ class Base(BasePL):
         else:
             self.validate_full(outs)
         self.log('lr', self.get_lr())
+
+    def gather_preds(self, outs):
+        # gather predictions from all gpus/nodes in distributed mode
+        output = [ None for _ in range(dist.get_world_size())  ]
+        dist.barrier()
+        dist.all_gather_object(output, outs)
+
+        outs = []
+        for out in output:
+            outs.extend(out)
+        return outs
 
     def validate_fast(self, outs):
         inter = np.sum([ out['inter'] for out in outs ]) + 1e-10

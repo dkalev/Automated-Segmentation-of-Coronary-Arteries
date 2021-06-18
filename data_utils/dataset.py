@@ -39,22 +39,15 @@ class AsocaDataset(Dataset):
         return file_id, idx
 
     def __getitem__(self, index):
-        file_id, idx = self.split_index(index)
+        file_id, patch_idx = self.split_index(index)
         x = np.load(Path(self.ds_path, 'vols', f'{file_id}.npy'), mmap_mode='r+')
         y = np.load(Path(self.ds_path, 'masks', f'{file_id}.npy'), mmap_mode='r+')
-        x, y = x[idx], y[idx]
+        x, y = x[patch_idx], y[patch_idx]
         x, y = torch.tensor(x), torch.LongTensor(y)
 
-        hm = None
-        if self.heart_mask:
-            hm = np.load(Path(self.ds_path, 'heart_masks', f'{file_id}.npy'), mmap_mode='r+')
-            hm = torch.tensor(hm[idx])
+        if len(x.shape) == 3: x, y = x.unsqueeze(0), y.unsqueeze(0)
 
-        if len(x.shape) == 3:
-            x, y = x.unsqueeze(0), y.unsqueeze(0)
-            if self.heart_mask: hm = hm.unsqueeze(0)
-
-        return file_id, x, y, hm
+        return x, y, (file_id, patch_idx)
 
 
 class AsocaVolumeDataset(AsocaDataset):
@@ -82,6 +75,6 @@ class AsocaVolumeDataset(AsocaDataset):
         return self.vol_id, index
 
     def __getitem__(self, index):
-        _, x, _, _ =  super().__getitem__(index)
+        x, _, _ =  super().__getitem__(index)
         return x
 

@@ -1,17 +1,19 @@
 import torch
 import numpy as np
 from torch.utils.data import Sampler
+from copy import deepcopy
 
 
 class ASOCASampler(Sampler):
-    def __init__(self, shapes,
+    def __init__(self, vol_meta,
                 shuffle=False,
                 oversample=False,
                 binary_weights=False,
                 perc_per_epoch=1,
                 oversample_coef=100,
                 alpha=1):
-        self.shapes = shapes
+        self.vol_meta = deepcopy(vol_meta)
+        for meta in self.vol_meta.values(): meta['weights'] = meta['foreground_ratio']
         self.gen = np.random.default_rng()
         self.shuffle = shuffle
         self.oversample = oversample
@@ -22,17 +24,17 @@ class ASOCASampler(Sampler):
     @property
     def max_patches(self):
         if not hasattr(self, '_max_patches'):
-            self._max_patches = max([ self.shapes[fid]['n_patches'] for fid in self.file_ids ])
+            self._max_patches = max([ self.vol_meta[fid]['n_patches'] for fid in self.file_ids ])
         return self._max_patches
 
     @property
     def total_patches(self):
         if not hasattr(self, '_total_patches'):
-            self._total_patches = sum([ self.shapes[fid]['n_patches'] for fid in self.file_ids ])
+            self._total_patches = sum([ self.vol_meta[fid]['n_patches'] for fid in self.file_ids ])
         return self._total_patches
 
     def sample_ids(self):
-        file_ids = list(self.shapes.keys())
+        file_ids = list(self.vol_meta.keys())
         n_samples = max(1, int(self.perc_per_epoch*len(file_ids)))
         if n_samples < len(file_ids):
             file_ids = np.random.choice(file_ids, n_samples, replace=False)
@@ -59,15 +61,26 @@ class ASOCASampler(Sampler):
             p[samples==0] /= ratio
             return p
         else:
-            samples = np.array(samples)
+            samples = np.array(samples) + np.min(samples)
             return samples / np.sum(samples)
 
+    def update_patch_weights(self, losses):
+        for file_id, patches in losses.items():
+            prev_weights = self.vol_meta[file_id]['weights']
+            patch_losses = np.zeros_like(prev_weights)
+            for patch_id, loss in patches.items(): patch_losses[patch_id] = loss
+
+            patch_losses /= np.max(patch_losses)
+            patch_losses *= np.max(prev_weights)
+            weights_next = prev_weights + patch_losses
+            weights_next /= np.sum(weights_next)
+            self.vol_meta[file_id]['weights'] = weights_next
 
     def get_patch_idxs(self, file_id):
-        meta = self.shapes[file_id]
+        meta = self.vol_meta[file_id]
         n_patches = meta['n_patches']
         if self.oversample:
-            weights = self.get_sample_weights(meta['foreground_ratio'])
+            weights = self.get_sample_weights(meta['weights'])
             return self.gen.choice(range(n_patches), n_patches, p=weights)
         elif self.shuffle:
             return self.gen.permutation(range(n_patches))
