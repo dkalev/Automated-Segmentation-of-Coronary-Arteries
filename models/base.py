@@ -101,16 +101,28 @@ class Base(BasePL):
             train_sampler = train_sampler.sampler
             valid_sampler = valid_sampler.sampler
             if dist.get_rank() == 0:
-                file_ids = valid_sampler.sample_ids()
+                file_ids_t = train_sampler.sample_ids()
+                file_ids_v = valid_sampler.sample_ids()
+
                 for dest_rank in range(1, dist.get_world_size()):
-                    dist.send(torch.tensor(file_ids, device='cuda', dtype=torch.uint8), dest_rank)
+                    dist.send(torch.tensor(file_ids_t, device='cuda', dtype=torch.uint8), dest_rank, tag=0)
+                    dist.send(torch.tensor(file_ids_v, device='cuda', dtype=torch.uint8), dest_rank, tag=1)
             else:
-                file_ids = torch.empty(len(valid_sampler.sample_ids()), device='cuda', dtype=torch.uint8)
-                dist.recv(file_ids, src=0)
-                file_ids = file_ids.tolist()
+                file_ids_t = torch.empty(len(train_sampler.sample_ids()), device='cuda', dtype=torch.uint8)
+                file_ids_v = torch.empty(len(valid_sampler.sample_ids()), device='cuda', dtype=torch.uint8)
+
+                dist.recv(file_ids_t, src=0, tag=0)
+                dist.recv(file_ids_v, src=0, tag=1)
+
+                file_ids_t = file_ids_t.tolist()
+                file_ids_v = file_ids_v.tolist()
         else:
-            file_ids = valid_sampler.sample_ids()
-        valid_sampler.file_ids = file_ids
+            file_ids_t = train_sampler.sample_ids()
+            file_ids_v = valid_sampler.sample_ids()
+
+        train_sampler.file_ids = file_ids_t
+        valid_sampler.file_ids = file_ids_v
+        print(train_sampler.file_ids, valid_sampler.file_ids, dist.get_rank() if dist.is_initialized() else 'nope')
 
     @staticmethod
     def get_loss_func(name):
