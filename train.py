@@ -1,6 +1,6 @@
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
-from pytorch_lightning.loggers import TensorBoardLogger
+from pytorch_lightning.loggers import TensorBoardLogger, WandbLogger
 from pytorch_lightning.plugins import DDPPlugin
 from data_utils import AsocaDataModule
 from models import Baseline3DCNN, UNet, MobileNetV2, SteerableCNN, SteerableFTCNN, CubeRegCNN, IcoRegCNN, EquivUNet
@@ -18,72 +18,75 @@ import warnings
 warnings.filterwarnings('ignore', 'Setting attributes on ParameterDict is not supported')
 warnings.filterwarnings('ignore', 'training_step returned None')
 
-def get_logger(hparams, run_name):
-    # disable logging in debug mode
-    if hparams['debug']: return False
-
-    logger = TensorBoardLogger('logs', name=run_name, default_hp_metric=False)
-    # log hparams to tensorboard
-    logger.log_hyperparams(hparams, {
-        'train_f1': 0,
-        'train_loss': float('inf'),
-        'valid_dice': 0,
-        'valid_f1': 0,
-        'valid_iou': 0,
-        'valid_loss': float('inf'),
-    })
-
-    return logger
 
 def update_dict(source, target):
     res = deepcopy(target)
     for key, val in source.items():
         if isinstance(val, dict) and key in res:
             res[key] = update_dict(val, res[key])
-        else:
+        elif val is not None:
             res[key] = val
     return res
 
-def combine_config(wandb_config, hparams):
-    if len(wandb_config.keys()) == 0: return hparams
-
-    res = defaultdict(dict)
-
-    for key, val in wandb_config.items():
-        path = key.split('.')
-        path, param = path[:-1], path[-1]
-        entry = res
-        for k in path:
-            if k not in entry:
-                entry[k] = {}
-            entry = entry[k]
-        entry[param] = val
-
-    res = update_dict(res, hparams)
-
-    if not res['dataset']['normalize']:
-        res['dataset']['data_clip_range'] = 'None'
-        wandb_config.update({'dataset.data_clip_range': 'None'})
-
-    return dict(res)
+def parse_dict(flat_dict, delim='.'):
+    res = {}
+    for key, val in flat_dict.items():
+        if delim not in key:
+            res[key] = val
+        else:
+            path = key
+            cur_d = res
+            while delim in path:
+                k, path = path.split(delim)[0], delim.join(path.split(delim)[1:])
+                if k not in cur_d: cur_d[k] = {}
+                cur_d = cur_d[k]
+            cur_d[path] = val
+    return res
 
 
 if __name__ == '__main__':
+    bool_type = lambda x: x.lower() == 'true'
+
     parser = argparse.ArgumentParser('Training on ASOCA dataset')
-    parser.add_argument('--debug', type=bool, default=False, choices=[True, False])
+    parser.add_argument('--debug', type=bool_type, default=False, choices=[True, False])
     parser.add_argument('--config_path', type=str, default='config/config.yml')
+
+    parser.add_argument('--dataset.patch_size')
+    parser.add_argument('--dataset.patch_stride')
+    parser.add_argument('--dataset.normalize', type=bool_type)
+    parser.add_argument('--dataset.data_clip_range')
+    parser.add_argument('--dataset.num_workers', type=int)
+    parser.add_argument('--dataset.resample_vols', type=bool_type)
+    parser.add_argument('--dataset.oversample', type=bool_type)
+    parser.add_argument('--dataset.crop_empty', type=bool_type)
+    parser.add_argument('--dataset.perc_per_epoch_train', type=float)
+    parser.add_argument('--dataset.perc_per_epoch_val', type=float)
+    parser.add_argument('--dataset.data_dir')
+    parser.add_argument('--dataset.sourcepath')
+
+    parser.add_argument('--train.model')
+    parser.add_argument('--train.gpus', type=int)
+    parser.add_argument('--train.n_epochs', type=int)
+    parser.add_argument('--train.batch_size', type=int)
+    parser.add_argument('--train.lr', type=float)
+    parser.add_argument('--train.loss_type')
+    parser.add_argument('--train.fully_conv', type=bool_type)
+    parser.add_argument('--train.fast_val', type=bool_type)
+    parser.add_argument('--train.skip_empty_patches', type=bool_type)
+    parser.add_argument('--train.mask_heart', type=bool_type)
+    parser.add_argument('--train.optim_type')
+    parser.add_argument('--train.kernel_size', type=int)
+
+    # # model specific params
+    parser.add_argument('--train.unet.deep_supervision', type=float)
+    parser.add_argument('--train.cnn.arch')
+    parser.add_argument('--train.steerable.type')
+
     hparams = vars(parser.parse_args())
+    hparams = parse_dict(hparams)
 
     with open(hparams['config_path'], 'r') as f:
-        hparams = { **hparams, **yaml.safe_load(f) }
-
-    if not hparams['debug']:
-        wandb.init(allow_val_change=True)
-        hparams = combine_config(wandb.config, hparams)
-        wandb.config.update(hparams)
-        run_name = wandb.run.name
-    else:
-        run_name = None
+        hparams = update_dict(hparams, yaml.safe_load(f))
 
     print(json.dumps(hparams, indent=2))
 
@@ -138,7 +141,7 @@ if __name__ == '__main__':
         'max_epochs': tparams['n_epochs'],
         # disable logging in debug mode
         'checkpoint_callback': not tparams['debug'],
-        'logger': get_logger(tparams, run_name),
+        'logger': WandbLogger() if not tparams['debug'] else None,
         'auto_lr_find': tparams['auto_lr_find'],
         'gradient_clip_val': 12,
         'callbacks': [ ModelCheckpoint(monitor='valid/loss', mode='min') ],
@@ -147,7 +150,7 @@ if __name__ == '__main__':
     if tparams['debug']:
         del trainer_kwargs['callbacks']
 
-    trainer = pl.Trainer(**trainer_kwargs)
+    trainer = pl.Trainer(**trainer_kwargs, num_sanity_val_steps=0)
 
     if tparams['auto_lr_find']: trainer.tune(model, asoca_dm)
 
