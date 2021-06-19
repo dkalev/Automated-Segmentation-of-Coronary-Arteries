@@ -12,14 +12,16 @@ class ASOCASampler(Sampler):
                 perc_per_epoch=1,
                 oversample_coef=100,
                 alpha=1):
-        self.vol_meta = deepcopy(vol_meta)
-        for meta in self.vol_meta.values(): meta['weights'] = meta['foreground_ratio']
         self.gen = np.random.default_rng()
         self.shuffle = shuffle
         self.oversample = oversample
         self.binary_weights = binary_weights
         self.perc_per_epoch = perc_per_epoch
         self.alpha = alpha
+
+        self.vol_meta = deepcopy(vol_meta)
+        for meta in self.vol_meta.values():
+            meta['weights'] = self.get_sample_weights(meta['foreground_ratio'])
 
     @property
     def max_patches(self):
@@ -52,6 +54,7 @@ class ASOCASampler(Sampler):
         self._file_ids = val
 
     def get_sample_weights(self, samples):
+        samples = np.array(samples)
         if self.binary_weights:
             samples = np.array(samples>0).astype(int)
             p = np.ones_like(samples) / len(samples)
@@ -61,7 +64,7 @@ class ASOCASampler(Sampler):
             p[samples==0] /= ratio
             return p
         else:
-            samples = np.array(samples) + np.min(samples)
+            samples = samples + np.min(samples[samples>0])
             return samples / np.sum(samples)
 
     def update_patch_weights(self, losses):
@@ -71,7 +74,7 @@ class ASOCASampler(Sampler):
             for patch_id, loss in patches.items(): patch_losses[patch_id] = loss
 
             patch_losses /= np.max(patch_losses)
-            patch_losses *= np.max(prev_weights)
+            patch_losses *= np.max(prev_weights[patch_losses>0])
             weights_next = prev_weights + patch_losses
             weights_next /= np.sum(weights_next)
             self.vol_meta[file_id]['weights'] = weights_next
@@ -80,8 +83,7 @@ class ASOCASampler(Sampler):
         meta = self.vol_meta[file_id]
         n_patches = meta['n_patches']
         if self.oversample:
-            weights = self.get_sample_weights(meta['weights'])
-            return self.gen.choice(range(n_patches), n_patches, p=weights)
+            return self.gen.choice(range(n_patches), n_patches, p=meta['weights'])
         elif self.shuffle:
             return self.gen.permutation(range(n_patches))
         else:
