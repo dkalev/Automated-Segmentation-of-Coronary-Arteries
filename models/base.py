@@ -59,6 +59,17 @@ class BasePL(pl.LightningModule):
     def get_lr(self):
         return self.trainer.lr_schedulers[0]['scheduler'].optimizer.param_groups[0].get('lr')
 
+    def get_sampler(self, split='train'):
+        if split == 'train':
+            sampler = self.trainer.train_dataloader.sampler
+        elif split == 'valid':
+            sampler = self.trainer.val_dataloaders[0].sampler
+        else:
+            raise ValueError(f'split must be one of ["train", "valid"], given: {split}')
+        # wrapped in distributed sampler
+        if dist.is_initialized(): sampler = sampler.sampler
+        return sampler
+
 
 class Base(BasePL):
     def __init__(self, *args,
@@ -143,40 +154,22 @@ class Base(BasePL):
         return preds
 
     def on_train_epoch_start(self):
-        train_sampler = self.trainer.train_dataloader.sampler
-        valid_sampler = self.trainer.val_dataloaders[0].sampler
+        train_sampler = self.get_sampler('train')
+        valid_sampler = self.get_sampler('valid')
 
+        file_ids_t = train_sampler.sample_ids()
+        file_ids_v = valid_sampler.sample_ids()
+        package = [file_ids_t, file_ids_v]
+
+        # ensure that each process validates on the same subset of files in ddp
+        # otherwise because a sampler is initialized in each process and ddp distributes
+        # the data further we end up with partial predictions for e.g. 4 volumes instead of
+        # full predictions (all patches) for the 2 required volumes
         if dist.is_initialized():
-            # ensure that each process validates on the same subset of files in ddp
-            # otherwise because a sampler is initialized in each process and ddp distributes
-            # the data further we end up with partial predictions for e.g. 4 volumes instead of
-            # full predictions (all patches) for the 2 required volumes
+            # broadcast sends the package object from the specified rank (0) and replaces it on all other ranks
+            dist.broadcast_object_list(package, 0)
 
-            # wrapped in distributed sampler
-            train_sampler = train_sampler.sampler
-            valid_sampler = valid_sampler.sampler
-            if dist.get_rank() == 0:
-                file_ids_t = train_sampler.sample_ids()
-                file_ids_v = valid_sampler.sample_ids()
-
-                for dest_rank in range(1, dist.get_world_size()):
-                    dist.send(torch.tensor(file_ids_t, device='cuda', dtype=torch.uint8), dest_rank, tag=0)
-                    dist.send(torch.tensor(file_ids_v, device='cuda', dtype=torch.uint8), dest_rank, tag=1)
-            else:
-                file_ids_t = torch.empty(len(train_sampler.sample_ids()), device='cuda', dtype=torch.uint8)
-                file_ids_v = torch.empty(len(valid_sampler.sample_ids()), device='cuda', dtype=torch.uint8)
-
-                dist.recv(file_ids_t, src=0, tag=0)
-                dist.recv(file_ids_v, src=0, tag=1)
-
-                file_ids_t = file_ids_t.tolist()
-                file_ids_v = file_ids_v.tolist()
-        else:
-            file_ids_t = train_sampler.sample_ids()
-            file_ids_v = valid_sampler.sample_ids()
-
-        train_sampler.file_ids = file_ids_t
-        valid_sampler.file_ids = file_ids_v
+        train_sampler.file_ids, valid_sampler.file_ids = package
 
     def training_step(self, batch, batch_idx):
         self.train_iter += 1
@@ -223,14 +216,21 @@ class Base(BasePL):
         }
 
     def training_epoch_end(self, outs):
-        losses = defaultdict(dict)
-        for batch in outs:
-            for i, patch_id in enumerate(batch['patch_ids']):
-                vol_id = batch['vol_ids'][i]
-                loss = batch['losses_per_patch'][i]
-                losses[vol_id][patch_id] = loss
+        if dist.is_initialized():
+            outs = self.gather_outs(outs)
 
-        train_sampler = self.trainer.train_dataloader.sampler
+        losses = defaultdict(dict)
+        if not dist.is_initialized() or dist.get_rank() == 0:
+            for batch in outs:
+                for i, patch_id in enumerate(batch['patch_ids']):
+                    vol_id = batch['vol_ids'][i]
+                    loss = batch['losses_per_patch'][i]
+                    losses[vol_id][patch_id] = loss
+        package = [losses]
+        dist.broadcast_object_list(package, 0)
+        losses = package[0]
+
+        train_sampler = self.get_sampler('train')
         train_sampler.update_patch_weights(losses)
 
     def validation_step(self, batch, batch_idx):
@@ -263,7 +263,7 @@ class Base(BasePL):
 
     def validation_epoch_end(self, outs):
         if dist.is_initialized():
-            outs = self.gather_preds(outs)
+            outs = self.gather_outs(outs)
 
             if dist.get_rank() != 0:
                 self.log('valid/loss', np.inf)
@@ -275,7 +275,7 @@ class Base(BasePL):
             self.validate_full(outs)
         self.log('lr', self.get_lr())
 
-    def gather_preds(self, outs):
+    def gather_outs(self, outs):
         # gather predictions from all gpus/nodes in distributed mode
         output = [ None for _ in range(dist.get_world_size())  ]
         dist.barrier()
