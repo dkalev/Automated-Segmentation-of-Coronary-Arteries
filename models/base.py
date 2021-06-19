@@ -226,9 +226,11 @@ class Base(BasePL):
                     vol_id = batch['vol_ids'][i]
                     loss = batch['losses_per_patch'][i]
                     losses[vol_id][patch_id] = loss
-        package = [losses]
-        dist.broadcast_object_list(package, 0)
-        losses = package[0]
+
+        if dist.is_initialized():
+            package = [losses]
+            dist.broadcast_object_list(package, 0)
+            losses = package[0]
 
         train_sampler = self.get_sampler('train')
         train_sampler.update_patch_weights(losses)
@@ -296,7 +298,8 @@ class Base(BasePL):
 
     def validate_full(self, outs):
         # skip if validation sanity check
-        if len(outs) < 10: return
+        n = 2 if not dist.is_initialized() else 2 * dist.get_world_size()
+        if len(outs) <= n: return
 
         # gather all patches per volume
         preds = defaultdict(list)
