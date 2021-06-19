@@ -13,6 +13,7 @@ import json
 import yaml
 import time
 import wandb
+import re
 
 import warnings
 warnings.filterwarnings('ignore', 'Setting attributes on ParameterDict is not supported')
@@ -46,13 +47,14 @@ def parse_dict(flat_dict, delim='.'):
 
 if __name__ == '__main__':
     bool_type = lambda x: x.lower() == 'true'
+    list_type = lambda x: [ int(d) for d in re.findall('\d+', x) ]
 
     parser = argparse.ArgumentParser('Training on ASOCA dataset')
     parser.add_argument('--debug', type=bool_type, default=False, choices=[True, False])
     parser.add_argument('--config_path', type=str, default='config/config.yml')
 
-    parser.add_argument('--dataset.patch_size')
-    parser.add_argument('--dataset.patch_stride')
+    parser.add_argument('--dataset.patch_size', type=list_type)
+    parser.add_argument('--dataset.patch_stride', type=list_type)
     parser.add_argument('--dataset.normalize', type=bool_type)
     parser.add_argument('--dataset.data_clip_range')
     parser.add_argument('--dataset.num_workers', type=int)
