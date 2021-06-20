@@ -17,7 +17,6 @@ class EquivUNet(BaseEquiv):
         self.kernel_size = kernel_size
         self.deep_supervision = deep_supervision
         self.initialize = initialize
-        print('type', type)
 
         type32  = GatedFieldType.build(gspace, 32, type=type)
         type64  = GatedFieldType.build(gspace, 64, type=type)
@@ -87,7 +86,6 @@ class EquivUNet(BaseEquiv):
                 ]
             )
         else:
-            print('trivial nonlin')
             return enn.ELU(ftype, inplace=True)
 
     def get_encoder(self, input_type, out_type, stride=2):

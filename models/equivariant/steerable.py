@@ -113,8 +113,7 @@ class SteerableFTCNN(BaseEquiv):
         )
 
         # input layer + crop of each block
-        self.crop = len(blocks) * (kernel_size // 2 - self.padding)
-        self.crop = 9
+        self.crop = np.array([9,9,9])
 
     @staticmethod
     def get_dim(max_freq, spherical=False):
