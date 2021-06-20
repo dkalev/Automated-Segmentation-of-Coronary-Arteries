@@ -101,11 +101,11 @@ class Base(BasePL):
 
     def parse_padding(self, padding, kernel_size):
         if isinstance(padding, int):
-            return 3*[padding]
+            return tuple(3*[padding])
         elif isinstance(padding, Iterable) and len(padding) == 3 and all(type(p)==int for p in padding):
-            return list(padding)
+            return tuple(padding)
         elif padding == 'same':
-            return 3*[kernel_size // 2]
+            return tuple(3*[kernel_size // 2])
         else:
             raise ValueError(f'Parameter padding must be int, tuple, or "same. Given: {padding}')
 
@@ -130,9 +130,9 @@ class Base(BasePL):
 
     def crop_data(self, data):
         data = data[..., # [batch_size, n_channels]
-                     self.crop:-self.crop, # x
-                     self.crop:-self.crop, # y
-                     self.crop:-self.crop] # z
+                     self.crop[0]:-self.crop[0], # x
+                     self.crop[1]:-self.crop[1], # y
+                     self.crop[2]:-self.crop[2]] # z
 
         return data
 

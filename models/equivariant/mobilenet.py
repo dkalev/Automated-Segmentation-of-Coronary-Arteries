@@ -245,7 +245,7 @@ class MobileNetV2(BaseEquiv):
             nn.Conv3d(pool_out, 1, kernel_size=1)
         )
 
-        self.crop = 32
+        self.crop = np.array([32,32,32])
 
     def bl_sphere(self, max_freq):
         # S^2 = SO(3)/SO(2)

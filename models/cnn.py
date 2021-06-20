@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from .base import Base
+import numpy as np
 
 
 class Baseline3DCNN(Base):
@@ -50,9 +51,10 @@ class Baseline3DCNN(Base):
         )
 
         if arch == 'strided':
-            self.crop = 11
+            self.crop = np.array([11,11,11])
         else:
             self.crop = (common_params['kernel_size']//2) * len(blocks[:-1]) # last layer doesn't affect crop
+            self.crop = np.array([self.crop, self.crop, self.crop])
 
         self.model = nn.Sequential(*blocks)
 

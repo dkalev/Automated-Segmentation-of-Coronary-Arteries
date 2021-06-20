@@ -119,11 +119,11 @@ if __name__ == '__main__':
     elif tparams['model'] == 'icoreg':
         model = IcoRegCNN(**kwargs)
     elif tparams['model'] == 'scnn':
-        model = SteerableCNN(**kwargs)
+        model = SteerableCNN(**{**kwargs, **tparams['steerable']})
     elif tparams['model'] == 'sftcnn':
         model = SteerableFTCNN(**{**kwargs, **tparams['steerable']})
     elif tparams['model'] == 'eunet':
-        model = EquivUNet(**kwargs)
+        model = EquivUNet(**{**kwargs, **tparams['steerable']})
 
     if tparams['model'] in ['mobilenet', 'cubereg', 'icoreg', 'scnn', 'sftcnn','eunet'] and not kwargs['initialize'] :
         model.init()

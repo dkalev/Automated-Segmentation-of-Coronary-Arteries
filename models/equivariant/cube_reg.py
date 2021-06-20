@@ -1,6 +1,7 @@
 import e3cnn.nn as enn
 from e3cnn import gspaces
 from e3cnn.group import directsum
+import numpy as np
 import torch
 import torch.nn as nn
 from typing import Tuple
@@ -41,8 +42,7 @@ class CubeRegCNN(BaseEquiv):
         )
 
         # input layer + crop of each block
-        self.crop = 4 * (kernel_size // 2 - self.padding)
-        self.crop = 7
+        self.crop = np.array([7,7,7])
 
     def forward(self, x):
         x = self.pre_forward(x)

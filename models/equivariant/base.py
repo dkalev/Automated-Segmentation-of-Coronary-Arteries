@@ -15,14 +15,31 @@ class GatedFieldType(enn.FieldType):
         self.gated = gated
         self.gates = gates
 
-        super().__init__(gspace, (self.trivials + self.gated + self.gates).representations)
+        combined = self.trivials
+        if self.gated and self.gates:
+            combined += self.gated
+            combined += self.gates
+        super().__init__(gspace, (combined).representations)
 
     def no_gates(self):
-        return enn.FieldType(self.gspace, (self.trivials + self.gated).representations)
+        combined = self.trivials
+        if self.gated: combined += self.gated
+        return enn.FieldType(self.gspace, (combined).representations)
 
     @classmethod
-    def build(cls, gspace, channels, max_freq=2):
-        dim = sum([2*l+1 for l in range(max_freq+1)]) + 1 # + 1 for gate per directsum of higher frequencies
+    def build(cls, gspace, channels, type='spherical', max_freq=2):
+        if type == 'trivial':
+            trivials = enn.FieldType(gspace, channels*[gspace.trivial_repr])
+            gated, gates = None, None
+            return cls(gspace, trivials, gated, gates)
+
+        if type == 'spherical':
+            dim = sum([2*l+1 for l in range(max_freq+1)]) + 1 # + 1 for gate per directsum of higher frequencies
+        elif type == 'so3':
+            dim = sum([(2*l+1)**2 for l in range(max_freq+1)]) + 1 # + 1 for gate per directsum of higher frequencies
+        else:
+            raise ValueError(f'type must be on of ["trivial", "spherical", "so3"], given: {type}')
+
         n_irreps, n_rem = channels // dim, channels % dim
         n_triv = n_irreps + n_rem
 
@@ -34,7 +51,23 @@ class GatedFieldType(enn.FieldType):
 
     def __add__(self, other: 'GatedFieldType') -> 'GatedFieldType':
         assert self.gspace == other.gspace
-        return GatedFieldType(self.gspace, self.trivials + other.trivials, self.gated + other.gated, self.gates + other.gates)
+        if self.gated and other.gated:
+            gated = self.gated + other.gated
+        elif self.gated:
+            gated = self.gated
+        elif other.gated:
+            gated = other.gated
+        else:
+            gated = None
+        if self.gates and other.gates:
+            gates = self.gates + other.gates
+        elif self.gates:
+            gates = self.gates
+        elif other.gates:
+            gates = other.gates
+        else:
+            gates = None
+        return GatedFieldType(self.gspace, self.trivials + other.trivials, gated, gates)
 
 
 def kernel_so3(L: int):

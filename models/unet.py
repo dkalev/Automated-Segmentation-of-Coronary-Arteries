@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import numpy as np
 from .base import Base
 from collections import OrderedDict
 
@@ -32,7 +33,6 @@ class UNet(Base):
             nn.ModuleDict({ 'upsampler': self.get_upsampler(64, 32), 'decoder': self.get_decoder(64, 32) }),
         ])
 
-
         if self.deep_supervision:
             self.heads = nn.ModuleList([
                 nn.Conv3d(320, 1, kernel_size=1, bias=False),
@@ -49,6 +49,7 @@ class UNet(Base):
         )
 
         self.crop = len(self.encoders) * 2 * self.padding # 2 conv per encoder
+        self.crop = np.array([self.crop, self.crop, self.crop])
 
     def get_encoder(self, in_channels, out_channels, stride=2):
         return nn.Sequential(OrderedDict({

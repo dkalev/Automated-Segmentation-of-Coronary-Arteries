@@ -1,4 +1,5 @@
 import torch
+import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
 from .base import BaseEquiv, GatedFieldType
@@ -9,19 +10,20 @@ from typing import Iterable
 
 
 class EquivUNet(BaseEquiv):
-    def __init__(self, *args, kernel_size=3, padding='same', deep_supervision=False, initialize=True, **kwargs):
+    def __init__(self, *args, kernel_size=3, padding='same', deep_supervision=False, type='spherical', initialize=True, **kwargs):
         gspace = gspaces.rot3dOnR3()
         super().__init__(gspace, *args, kernel_size=kernel_size, padding=padding, **kwargs)
 
         self.kernel_size = kernel_size
         self.deep_supervision = deep_supervision
         self.initialize = initialize
+        print('type', type)
 
-        type32  = GatedFieldType.build(gspace, 32)
-        type64  = GatedFieldType.build(gspace, 64)
-        type128 = GatedFieldType.build(gspace, 128)
-        type256 = GatedFieldType.build(gspace, 256)
-        type320 = GatedFieldType.build(gspace, 320)
+        type32  = GatedFieldType.build(gspace, 32, type=type)
+        type64  = GatedFieldType.build(gspace, 64, type=type)
+        type128 = GatedFieldType.build(gspace, 128, type=type)
+        type256 = GatedFieldType.build(gspace, 256, type=type)
+        type320 = GatedFieldType.build(gspace, 320, type=type)
 
         self.encoders = nn.ModuleList([
             self.get_encoder(self.input_type, type32, stride=1),
@@ -70,18 +72,23 @@ class EquivUNet(BaseEquiv):
         )
 
         self.crop = len(self.encoders) * 2 * (self.kernel_size//2) # 2 conv per encoder
+        self.crop = np.array([self.crop, self.crop, self.crop])
 
     @staticmethod
     def get_nonlin(ftype):
-        return enn.MultipleModule(ftype,
-            labels=[
-                *( len(ftype.trivials) * ['trivial'] + (len(ftype.gated) + len(ftype.gates)) * ['gate'] )
-            ],
-            modules=[
-                (enn.ELU(ftype.trivials, inplace=True), 'trivial'),
-                (enn.GatedNonLinearity1(ftype.gated+ftype.gates, len(ftype.gated)*['gated']+len(ftype.gates)*['gate']), 'gate')
-            ]
-        )
+        if ftype.gated and ftype.gates:
+            return enn.MultipleModule(ftype,
+                labels=[
+                    *( len(ftype.trivials) * ['trivial'] + (len(ftype.gated) + len(ftype.gates)) * ['gate'] )
+                ],
+                modules=[
+                    (enn.ELU(ftype.trivials, inplace=True), 'trivial'),
+                    (enn.GatedNonLinearity1(ftype.gated+ftype.gates, len(ftype.gated)*['gated']+len(ftype.gates)*['gate']), 'gate')
+                ]
+            )
+        else:
+            print('trivial nonlin')
+            return enn.ELU(ftype, inplace=True)
 
     def get_encoder(self, input_type, out_type, stride=2):
         return enn.SequentialModule(OrderedDict({
