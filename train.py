@@ -89,8 +89,7 @@ if __name__ == '__main__':
 
     with open(hparams['config_path'], 'r') as f:
         hparams = update_dict(hparams, yaml.safe_load(f))
-
-    print(json.dumps(hparams, indent=2))
+        print(json.dumps(hparams, indent=2))
 
     tparams = { 'debug': hparams['debug'], **hparams['train']}
 
@@ -149,12 +148,11 @@ if __name__ == '__main__':
         'callbacks': [ ModelCheckpoint(monitor='valid/loss', mode='min') ],
         'plugins': DDPPlugin(find_unused_parameters=False) if tparams['gpus'] > 1 else None,
     }
-    if tparams['debug']:
-        del trainer_kwargs['callbacks']
+    if tparams['debug']: del trainer_kwargs['callbacks']
 
-    trainer = pl.Trainer(**trainer_kwargs, num_sanity_val_steps=0)
+    trainer = pl.Trainer(**trainer_kwargs)
 
     if tparams['auto_lr_find']: trainer.tune(model, asoca_dm)
 
-    trainer.fit(model, asoca_dm) #.train_dataloader() if hparams['debug'] else asoca_dm)
+    trainer.fit(model, asoca_dm)
 

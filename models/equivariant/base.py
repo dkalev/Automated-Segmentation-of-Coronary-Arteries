@@ -160,16 +160,6 @@ class BaseEquiv(Base):
         self.padding = self.parse_padding(padding, kernel_size)
         self.input_type = enn.FieldType(self.gspace, in_channels*[self.gspace.trivial_repr])
 
-    def parse_padding(self, padding, kernel_size):
-        if isinstance(padding, int):
-            return padding
-        elif isinstance(padding, tuple) and len(padding) == 3 and all(type(p)==int for p in padding):
-            return padding
-        elif padding == 'same':
-            return kernel_size // 2
-        else:
-            raise ValueError(f'Parameter padding must be int, tuple, or "same. Given: {padding}')
-
     def init(self):
         # FIXME initialize the rest of the modules when starting to use them
         for m in self.modules():
