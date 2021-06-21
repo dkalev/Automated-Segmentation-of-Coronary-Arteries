@@ -36,11 +36,11 @@ class ASOCASampler(Sampler):
         return self._total_patches
 
     def sample_ids(self):
-        file_ids = np.array(self.vol_meta.keys())
+        file_ids = list(self.vol_meta.keys())
         n_samples = max(1, int(self.perc_per_epoch*len(file_ids)))
         if n_samples < len(file_ids):
             file_ids = np.random.choice(file_ids, n_samples, replace=False)
-        file_ids = self.gen.permutation(file_ids) if self.shuffle else file_ids
+        file_ids = self.gen.permutation(file_ids) if self.shuffle else np.array(file_ids)
         return file_ids.tolist()
 
     @property
