@@ -48,7 +48,7 @@ def parse_dict(flat_dict, delim='.'):
 if __name__ == '__main__':
     bool_type = lambda x: x.lower() == 'true'
     list_type = lambda x: [ int(d) for d in re.findall('\d+', x) ]
-
+    int_or_list_type = lambda x: int(x) if re.match('\d+$', x) else list_type(x)
     parser = argparse.ArgumentParser('Training on ASOCA dataset')
     parser.add_argument('--debug', type=bool_type, default=False, choices=[True, False])
     parser.add_argument('--config_path', type=str, default='config/config.yml')
@@ -67,7 +67,7 @@ if __name__ == '__main__':
     parser.add_argument('--dataset.sourcepath')
 
     parser.add_argument('--train.model')
-    parser.add_argument('--train.gpus', type=int)
+    parser.add_argument('--train.gpus', type=int_or_list_type)
     parser.add_argument('--train.n_epochs', type=int)
     parser.add_argument('--train.batch_size', type=int)
     parser.add_argument('--train.lr', type=float)
@@ -87,6 +87,9 @@ if __name__ == '__main__':
     hparams = vars(parser.parse_args())
     hparams = parse_dict(hparams)
 
+    multigpu = (isinstance(hparams['train']['gpus'], int) and hparams['train']['gpus'] > 1) \
+	or (isinstance(hparams['train']['gpus'], list) and len(hparams['train']['gpus']) > 1)
+
     with open(hparams['config_path'], 'r') as f:
         hparams = update_dict(hparams, yaml.safe_load(f))
         print(json.dumps(hparams, indent=2))
@@ -95,7 +98,7 @@ if __name__ == '__main__':
 
     asoca_dm = AsocaDataModule(
         batch_size=hparams['train']['batch_size'],
-        distributed=tparams['gpus'] > 1,
+        distributed=multigpu,
         **hparams['dataset'])
 
     asoca_dm.prepare_data()
@@ -138,7 +141,7 @@ if __name__ == '__main__':
 
     trainer_kwargs = {
         'gpus': tparams['gpus'],
-        'accelerator': 'ddp' if tparams['gpus'] > 1 else None,
+        'accelerator': 'ddp' if multigpu else None,
         'max_epochs': tparams['n_epochs'],
         # disable logging in debug mode
         'checkpoint_callback': not tparams['debug'],
@@ -146,7 +149,7 @@ if __name__ == '__main__':
         'auto_lr_find': tparams['auto_lr_find'],
         'gradient_clip_val': 12,
         'callbacks': [ ModelCheckpoint(monitor='valid/loss', mode='min') ],
-        'plugins': DDPPlugin(find_unused_parameters=False) if tparams['gpus'] > 1 else None,
+        'plugins': DDPPlugin(find_unused_parameters=False) if multigpu else None,
     }
     if tparams['debug']: del trainer_kwargs['callbacks']
 
