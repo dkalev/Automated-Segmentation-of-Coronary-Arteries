@@ -39,8 +39,9 @@ class AsocaDataModule(DatasetBuilder, LightningDataModule):
 
         if patch_stride is None:
             patch_stride = self.patch_size
-        elif isinstance(patch_stride, int):
-            patch_stride = np.array([patch_stride, patch_stride, patch_stride])
+        elif isinstance(patch_stride, np.ndarray):
+            patch_stride = patch_stride.tolist()
+
         self.stride = patch_stride
         self.oversample = oversample
         self.perc_per_epoch_train = perc_per_epoch_train
@@ -71,8 +72,7 @@ class AsocaDataModule(DatasetBuilder, LightningDataModule):
         logger.info('Building dataset')
         volume_path = Path(self.data_dir, 'Train')
         mask_path = Path(self.data_dir, 'Train_Masks')
-        heart_mask_path = Path(self.data_dir, 'Train_WH_Masks')
-        self.build_dataset(volume_path, mask_path, heart_mask_path)
+        self.build_dataset(volume_path, mask_path)
 
         for subdir in subdirs:
             shutil.rmtree(Path(self.data_dir, subdir))

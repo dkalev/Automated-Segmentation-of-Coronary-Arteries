@@ -141,7 +141,7 @@ class DatasetBuilder():
         return (data - mean) / std
 
     def preprocess(self, params):
-        vol_id, volume_path, mask_path, heart_mask_path, split = params
+        vol_id, volume_path, mask_path, split = params
         data_dir = Path(self.data_dir, split)
 
         mask, header = nrrd.read(mask_path, index_order='C')
@@ -164,17 +164,6 @@ class DatasetBuilder():
 
         np.save(Path(data_dir, 'masks', f'{vol_id}.npy'), mask_patches)
         del mask
-
-        heart_mask, _ = nrrd.read(heart_mask_path, index_order='C')
-
-        if self.resample_vols:
-            dtype = heart_mask.dtype
-            heart_mask = resize(heart_mask.astype(float), shape_resampled, order=0, mode='constant', cval=0, clip=True, anti_aliasing=False).astype(dtype)
-
-        heart_mask_patches, _ = vol2patches(heart_mask, self.patch_size, self.stride, padding)
-
-        np.save(Path(data_dir, 'heart_masks', f'{vol_id}.npy'), heart_mask_patches)
-        del heart_mask
 
         volume, _ = nrrd.read(volume_path, index_order='C')
 
@@ -221,7 +210,7 @@ class DatasetBuilder():
         vol, _ = nrrd.read(vol_path, index_order='C')
         return vol[mask==1].flatten()[::10]
 
-    def build_dataset(self, volume_path, mask_path, heart_mask_path):
+    def build_dataset(self, volume_path, mask_path):
         meta = OrderedDict({
             'patch_size': [ int(x) for x in self.patch_size ],
             'stride': [ int(x) for x in self.stride],
@@ -233,13 +222,12 @@ class DatasetBuilder():
 
         for split in ['train', 'valid']:
             os.makedirs(Path(self.data_dir, split), exist_ok=True)
-            for part in ['vols', 'masks', 'heart_masks']:
+            for part in ['vols', 'masks']:
                 os.makedirs(Path(self.data_dir, split, part), exist_ok=True)
 
         paths = [ ( file_id,
                     Path(volume_path, f'{file_id}.nrrd'),
                     Path(mask_path, f'{file_id}.nrrd'),
-                    Path(heart_mask_path, f'{file_id}.nrrd'),
                     'train' if file_id not in self.valid_idxs else 'valid'
                     ) for file_id in range(40) ]
 
