@@ -63,7 +63,7 @@ class AsocaDataModule(DatasetBuilder, LightningDataModule):
 
         if Path(self.data_dir).is_dir(): shutil.rmtree(self.data_dir)
 
-        subdirs = ['Train', 'Train_Masks', 'Train_WH_Masks', 'Test']
+        subdirs = ['Train', 'Train_Masks', 'Test']
         folders_exist = [ Path(self.data_dir, subdir).is_dir() for subdir in subdirs ]
         if not all(folders_exist):
             logger.info(f'Extracting data from {self.sourcepath}')
