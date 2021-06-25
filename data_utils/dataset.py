@@ -7,9 +7,8 @@ from torch.utils.data import Dataset
 
 
 class AsocaDataset(Dataset):
-    def __init__(self, ds_path='dataset/processed', heart_mask=True, split='train'):
+    def __init__(self, ds_path='dataset/processed', split='train'):
         self.ds_path = Path(ds_path, split)
-        self.heart_mask = heart_mask
         with open(Path(ds_path, 'dataset.json'), 'r') as f:
             meta = json.load(f)
         self.vol_meta = { int(k): v for k, v in meta['vol_meta'].items() if v['split'] == split }
@@ -53,7 +52,7 @@ class AsocaDataset(Dataset):
 class AsocaVolumeDataset(AsocaDataset):
     def __init__(self, *args, vol_id, **kwargs):
         split = self.infer_split(kwargs['ds_path'], vol_id)
-        super().__init__(*args, heart_mask=False, split=split, **kwargs)
+        super().__init__(*args, split=split, **kwargs)
         self.vol_meta = { vol_id: self.vol_meta[vol_id] }
         self.vol_id = vol_id
 

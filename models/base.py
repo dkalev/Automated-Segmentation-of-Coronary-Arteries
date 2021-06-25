@@ -201,7 +201,7 @@ class Base(BasePL):
                 loss = losses.mean()
 
         with torch.no_grad():
-            losses_per_patch = [ self.crit(preds[i], targs[i]).item() for i in range(len(preds)) ]
+            losses_per_patch = [ self.crit(preds[i].unsqueeze(0), targs[i].unsqueeze(0)).item() for i in range(len(preds)) ]
 
         return {
             'vol_ids': vol_ids,
