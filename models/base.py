@@ -79,7 +79,6 @@ class Base(BasePL):
                         skip_empty_patches=False,
                         mask_heart=False,
                         optim_type='adam',
-                        ds_meta=None,
                         debug=False,
                         fast_val=False,
                         **kwargs):
@@ -89,8 +88,6 @@ class Base(BasePL):
         self.skip_empty_patches = skip_empty_patches
         self.mask_heart = mask_heart
 
-        assert ds_meta is not None
-        self.ds_meta = ds_meta
         self.debug = debug
         self.fast_val = fast_val
 
@@ -98,6 +95,14 @@ class Base(BasePL):
             self.optim_type = optim_type
         else:
             raise ValueError(f'Unsupported optimizer type: {optim_type}')
+
+    @property
+    def ds_meta(self):
+        return self._ds_meta
+
+    @ds_meta.setter
+    def ds_meta(self, ds_meta):
+        self._ds_meta = ds_meta
 
     def parse_padding(self, padding, kernel_size):
         if isinstance(padding, int):
@@ -309,6 +314,7 @@ class Base(BasePL):
 
     def validate_full(self, outs):
         # skip if validation sanity check
+        assert hasattr(self, 'ds_meta'), 'Provide volume shapes to use full validation'
         n = 2 if not dist.is_initialized() else 2 * dist.get_world_size()
         if len(outs) <= n: return
 

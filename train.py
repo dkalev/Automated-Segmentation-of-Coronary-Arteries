@@ -44,6 +44,53 @@ def parse_dict(flat_dict, delim='.'):
             cur_d[path] = val
     return res
 
+def check_patch_config(hparams, model):
+    psize = hparams['dataset']['patch_size']
+    pstride  = hparams['dataset']['patch_stride']
+
+    has_correct_stride = np.allclose(
+        hparams['dataset']['patch_size'],
+        np.array(hparams['dataset']['patch_stride']) + 2*model.crop
+    )
+
+    if not has_correct_stride:
+        if hparams['debug']:
+            raise ValueError(f"patch_size: {psize}, stride: {pstride}, crop: {model.crop}, expected stride: {psize[0] - 2*model.crop}")
+        else:
+            hparams['dataset']['patch_stride'] = psize - 2 * model.crop
+
+    return hparams['dataset']['patch_stride']
+
+def get_model(tparams):
+    model_params = ['loss_type', 'lr', 'kernel_size', 'skip_empty_patches', 'fast_val', 'debug']
+    equivariant_models = ['mobilenet', 'cubereg', 'icoreg', 'scnn', 'sftcnn', 'eunet']
+
+    kwargs = { param: tparams[param] for param in model_params }
+
+    if tparams['model'] in equivariant_models:
+        kwargs.update({'initialize': not tparams['debug']})
+
+    if tparams['model'] == 'cnn':
+        model = Baseline3DCNN(**{**kwargs, **tparams['cnn']})
+    elif tparams['model'] == 'unet':
+        model = UNet(**{**kwargs, **tparams['unet']})
+    elif tparams['model'] == 'mobilenet':
+        model = MobileNetV2(**kwargs)
+    elif tparams['model'] == 'cubereg':
+        model = CubeRegCNN(**kwargs)
+    elif tparams['model'] == 'icoreg':
+        model = IcoRegCNN(**kwargs)
+    elif tparams['model'] == 'scnn':
+        model = SteerableCNN(**{**kwargs, **tparams['steerable']})
+    elif tparams['model'] == 'sftcnn':
+        model = SteerableFTCNN(**{**kwargs, **tparams['steerable']})
+    elif tparams['model'] == 'eunet':
+        model = EquivUNet(**{**kwargs, **tparams['steerable']})
+
+    if tparams['model'] in equivariant_models and not kwargs['initialize']:
+        model.init()
+
+    return model
 
 if __name__ == '__main__':
     bool_type = lambda x: x.lower() == 'true'
@@ -96,6 +143,10 @@ if __name__ == '__main__':
 
     tparams = { 'debug': hparams['debug'], **hparams['train']}
 
+    model = get_model(tparams)
+
+    hparams['dataset']['patch_stride'] = check_patch_config(hparams, model)
+
     asoca_dm = AsocaDataModule(
         batch_size=hparams['train']['batch_size'],
         distributed=multigpu,
@@ -103,49 +154,17 @@ if __name__ == '__main__':
 
     asoca_dm.prepare_data()
 
-    kwargs = { param: tparams[param] for param in ['loss_type', 'lr', 'kernel_size', 'skip_empty_patches', 'fast_val'] }
-    with open(Path(asoca_dm.data_dir, 'dataset.json'), 'r') as f:
-        ds_meta = json.load(f)
-    kwargs['ds_meta'] = ds_meta
-    kwargs['debug'] = hparams['debug']
-    if tparams['model'] in ['mobilenet', 'cubereg', 'icoreg', 'scnn', 'sftcnn', 'eunet']:
-        kwargs.update({'initialize': not tparams['debug']})
+    with open(Path(hparams['dataset']['data_dir'], 'dataset.json'), 'r') as f:
+        model.ds_meta = json.load(f)
 
-    if tparams['model'] == 'cnn':
-        model = Baseline3DCNN(**{**kwargs, **tparams['cnn']})
-    elif tparams['model'] == 'unet':
-        model = UNet(**{**kwargs, **tparams['unet']})
-    elif tparams['model'] == 'mobilenet':
-        model = MobileNetV2(**kwargs)
-    elif tparams['model'] == 'cubereg':
-        model = CubeRegCNN(**kwargs)
-    elif tparams['model'] == 'icoreg':
-        model = IcoRegCNN(**kwargs)
-    elif tparams['model'] == 'scnn':
-        model = SteerableCNN(**{**kwargs, **tparams['steerable']})
-    elif tparams['model'] == 'sftcnn':
-        model = SteerableFTCNN(**{**kwargs, **tparams['steerable']})
-    elif tparams['model'] == 'eunet':
-        model = EquivUNet(**{**kwargs, **tparams['steerable']})
-
-    if tparams['model'] in ['mobilenet', 'cubereg', 'icoreg', 'scnn', 'sftcnn','eunet'] and not kwargs['initialize'] :
-        model.init()
-
-    if not hparams['train']['fast_val']:
-        psize = hparams['dataset']['patch_size']
-        pstride  = hparams['dataset']['patch_stride']
-        assert np.allclose(
-            hparams['dataset']['patch_size'],
-            np.array(hparams['dataset']['patch_stride']) + 2*model.crop
-        ), f"patch_size: {psize}, stride: {pstride}, crop: {model.crop}, expected stride: {psize[0] - 2*model.crop}"
-
+    logger = WandbLogger() if not tparams['debug'] else None
     trainer_kwargs = {
         'gpus': tparams['gpus'],
         'accelerator': 'ddp' if multigpu else None,
         'max_epochs': tparams['n_epochs'],
         # disable logging in debug mode
         'checkpoint_callback': not tparams['debug'],
-        'logger': WandbLogger() if not tparams['debug'] else None,
+        'logger': logger,
         'auto_lr_find': tparams['auto_lr_find'],
         'gradient_clip_val': 12,
         'callbacks': [ ModelCheckpoint(monitor='valid/loss', mode='min') ],
@@ -155,7 +174,9 @@ if __name__ == '__main__':
 
     trainer = pl.Trainer(**trainer_kwargs)
 
-    if tparams['auto_lr_find']: trainer.tune(model, asoca_dm)
+    if logger:
+        logger.log_hyperparams(hparams)
+        logger.watch(model)
 
     trainer.fit(model, asoca_dm)
 
