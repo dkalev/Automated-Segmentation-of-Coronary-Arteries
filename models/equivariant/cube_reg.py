@@ -18,22 +18,22 @@ class CubeRegCNN(BaseEquiv):
         mid_type   = enn.FieldType(self.gspace, 64*[self.gspace.regular_repr])
         final_type = enn.FieldType(self.gspace, 32*[self.gspace.fibergroup.cube_vertices_representation])
 
-        R3Conv = partial(enn.R3Conv, kernel_size=kernel_size, padding=self.padding, bias=False, initialize=initialize)
+        get_block = partial(self.get_block, kernel_size=kernel_size, padding=self.padding, bias=False, initialize=initialize)
 
-        self.model = enn.SequentialModule(
-            R3Conv(self.input_type, small_type, stride=2),
-            enn.IIDBatchNorm3d(small_type),
-            enn.ELU(small_type, inplace=True),
-            R3Conv(small_type, small_type),
-            enn.IIDBatchNorm3d(small_type),
-            enn.ELU(small_type, inplace=True),
-            R3Conv(small_type, mid_type),
-            enn.IIDBatchNorm3d(mid_type),
-            enn.ELU(mid_type, inplace=True),
-            R3Conv(mid_type, final_type),
-            enn.IIDBatchNorm3d(final_type),
-            enn.ELU(final_type, inplace=True),
-        )
+        blocks = [
+            get_block(self.input_type, small_type, stride=2),
+            get_block(small_type, small_type),
+            get_block(small_type, small_type),
+            get_block(small_type, small_type),
+            get_block(small_type, small_type),
+            get_block(small_type, small_type),
+            get_block(small_type, small_type),
+            get_block(small_type, small_type),
+            get_block(small_type, small_type),
+            get_block(small_type, final_type),
+        ]
+
+        self.model = enn.SequentialModule( *blocks )
         self.pool = enn.GroupPooling(final_type)
         pool_out = len(final_type.representations)
         self.final = nn.Sequential(
@@ -41,8 +41,19 @@ class CubeRegCNN(BaseEquiv):
             nn.Conv3d(pool_out, out_channels, kernel_size=1)
         )
 
-        # input layer + crop of each block
-        self.crop = np.array([7,7,7])
+        # FIXME hardcoded assuming input of shape [128,128,128], stride=2 in first conv and upsampling after
+        crop_per_layer = kernel_size // 2
+        input_shape = np.array([128,128,128])
+        output_shape = ((input_shape - 2*crop_per_layer) // 2 - len(blocks[1:]) * 2 * crop_per_layer) * 2
+        self.crop = (input_shape - output_shape) // 2
+
+    @staticmethod
+    def get_block(in_type, out_type, **kwargs):
+        return enn.SequentialModule(
+            enn.R3Conv(in_type, out_type, **kwargs),
+            enn.IIDBatchNorm3d(out_type),
+            enn.ELU(out_type, inplace=True),
+        )
 
     def forward(self, x):
         x = self.pre_forward(x)
