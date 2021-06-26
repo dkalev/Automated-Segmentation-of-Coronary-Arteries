@@ -27,7 +27,6 @@ class AsocaDataModule(DatasetBuilder, LightningDataModule):
                 distributed=False,
                 perc_per_epoch_train=1,
                 perc_per_epoch_val=1,
-                oversample_coef=100,
                 data_dir='dataset/processed',
                 sourcepath='dataset/ASOCA2020Data.zip', **kwargs):
         super().__init__(logger, *args, sourcepath=sourcepath, **kwargs)
@@ -46,7 +45,6 @@ class AsocaDataModule(DatasetBuilder, LightningDataModule):
         self.oversample = oversample
         self.perc_per_epoch_train = perc_per_epoch_train
         self.perc_per_epoch_val = perc_per_epoch_val
-        self.oversample_coef = oversample_coef
         self.distributed = distributed
         self.data_dir = data_dir
 
@@ -85,8 +83,7 @@ class AsocaDataModule(DatasetBuilder, LightningDataModule):
         train_split = AsocaDataset(ds_path=self.data_dir, split='train')
         sampler = ASOCASampler(train_split.vol_meta,
                                 oversample=self.oversample,
-                                perc_per_epoch=self.perc_per_epoch_train,
-                                oversample_coef=self.oversample_coef)
+                                perc_per_epoch=self.perc_per_epoch_train)
         if self.distributed:
             sampler = DistributedSamplerWrapper(sampler=sampler)
         return DataLoader(train_split, sampler=sampler, batch_size=batch_size, num_workers=num_workers, pin_memory=True)

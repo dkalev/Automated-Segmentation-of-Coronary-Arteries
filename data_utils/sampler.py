@@ -8,16 +8,13 @@ class ASOCASampler(Sampler):
     def __init__(self, vol_meta,
                 shuffle=False,
                 oversample=False,
-                binary_weights=False,
                 perc_per_epoch=1,
-                oversample_coef=100,
-                alpha=1):
+                weight_update_step=0.01):
         self.gen = np.random.default_rng()
         self.shuffle = shuffle
         self.oversample = oversample
-        self.binary_weights = binary_weights
         self.perc_per_epoch = perc_per_epoch
-        self.alpha = alpha
+        self.w_step = weight_update_step
 
         self.vol_meta = deepcopy(vol_meta)
         for meta in self.vol_meta.values():
@@ -55,17 +52,8 @@ class ASOCASampler(Sampler):
 
     def get_sample_weights(self, samples):
         samples = np.array(samples)
-        if self.binary_weights:
-            samples = np.array(samples>0).astype(int)
-            p = np.ones_like(samples) / len(samples)
-            if not np.any(samples): return p # if all zeros sample uniformly
-            ratio = len(samples[samples==0]) / len(samples[samples==1]) * self.alpha
-            p[samples==1] *= ratio
-            p[samples==0] /= ratio
-            return p
-        else:
-            samples = samples + np.min(samples[samples>0])
-            return samples / np.sum(samples)
+        samples = samples + np.min(samples[samples>0])
+        return samples / np.sum(samples)
 
     def update_patch_weights(self, losses):
         for file_id, patches in losses.items():
@@ -75,7 +63,7 @@ class ASOCASampler(Sampler):
 
             patch_losses /= np.max(patch_losses)
             patch_losses *= np.max(prev_weights[patch_losses>0])
-            weights_next = prev_weights + patch_losses
+            weights_next = prev_weights + self.w_step * patch_losses
             weights_next /= np.sum(weights_next)
             self.vol_meta[file_id]['weights'] = weights_next
 
