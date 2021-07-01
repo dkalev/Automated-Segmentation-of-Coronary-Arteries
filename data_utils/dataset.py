@@ -14,15 +14,27 @@ class AsocaDataset(Dataset):
         self.vol_meta = { int(k): v for k, v in meta['vol_meta'].items() if v['split'] == split }
 
     @property
+    def file_ids(self):
+        if not hasattr(self, '_file_ids'):
+            self._file_ids = list(self.vol_meta.keys())
+        return self._file_ids
+
+    @file_ids.setter
+    def file_ids(self, val):
+        self._file_ids = val
+        self._max_patches = max([ self.vol_meta[fid]['n_patches'] for fid in val ])
+        self._total_patches = sum([ self.vol_meta[fid]['n_patches'] for fid in val ])
+
+    @property
     def max_patches(self):
         if not hasattr(self, '_max_patches'):
-            self._max_patches = np.max([ m['n_patches'] for m in self.vol_meta.values() ])
+            self._max_patches = np.max([ self.vol_meta[fid]['n_patches'] for fid in self.file_ids ])
         return self._max_patches
 
     @property
     def total_patches(self):
         if not hasattr(self, '_total_patches'):
-            self._total_patches = np.sum([ m['n_patches'] for m in self.vol_meta.values() ])
+            self._total_patches = np.sum([ self.vol_meta[fid]['n_patches'] for fid in self.file_ids ])
         return self._total_patches
 
     def __len__(self):
@@ -35,17 +47,18 @@ class AsocaDataset(Dataset):
         elif isinstance(index, slice):
             file_id = index.start // self.max_patches
             idx = slice(index.start % self.max_patches, index.stop % self.max_patches)
+        else:
+            raise ValueError(f'Unsupported index type: {type(index)}, value: {index}')
         return file_id, idx
 
     def __getitem__(self, index):
         file_id, patch_idx = self.split_index(index)
-        x = np.load(Path(self.ds_path, 'vols', f'{file_id}.npy'), mmap_mode='r+')
-        y = np.load(Path(self.ds_path, 'masks', f'{file_id}.npy'), mmap_mode='r+')
-        x, y = x[patch_idx], y[patch_idx]
+        x = np.load(Path(self.ds_path, 'vols', f'{file_id}.npy'), mmap_mode='r')
+        y = np.load(Path(self.ds_path, 'masks', f'{file_id}.npy'), mmap_mode='r')
+        x, y = np.array(x[patch_idx]), np.array(y[patch_idx])
         x, y = torch.tensor(x), torch.LongTensor(y)
 
         if len(x.shape) == 3: x, y = x.unsqueeze(0), y.unsqueeze(0)
-
         return x, y, (file_id, patch_idx)
 
 

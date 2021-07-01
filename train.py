@@ -147,10 +147,7 @@ if __name__ == '__main__':
 
     hparams['dataset']['patch_stride'] = check_patch_config(hparams, model)
 
-    asoca_dm = AsocaDataModule(
-        batch_size=hparams['train']['batch_size'],
-        distributed=multigpu,
-        **hparams['dataset'])
+    asoca_dm = AsocaDataModule( batch_size=hparams['train']['batch_size'], **hparams['dataset'])
 
     asoca_dm.prepare_data()
 
@@ -169,6 +166,9 @@ if __name__ == '__main__':
         'gradient_clip_val': 12,
         'callbacks': [ ModelCheckpoint(monitor='valid/loss', mode='min') ],
         'plugins': DDPPlugin(find_unused_parameters=False) if multigpu else None,
+        'replace_sampler_ddp': False,
+        'num_sanity_val_steps': 0,
+        'reload_dataloaders_every_epoch': True if multigpu else False,
     }
     if tparams['debug']: del trainer_kwargs['callbacks']
 

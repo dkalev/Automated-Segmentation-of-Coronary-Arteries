@@ -1,5 +1,4 @@
 import torch
-import torch.nn as nn
 import torch.distributed as dist
 import numpy as np
 from torch.optim import Adam, SGD
@@ -9,13 +8,12 @@ from loss import DiceBCELoss, BCEWrappedLoss, DiceLoss, DiceBCE_OHNMLoss
 from concurrent.futures import ProcessPoolExecutor
 from multiprocessing import get_context
 from tqdm import tqdm
-from functools import partial
 from metrics import dice_score, hausdorff_95
 from collections import defaultdict
 from data_utils.helpers import get_volume_pred
 from typing import Iterable
-import wandb
 from itertools import repeat
+
 
 def get_volume(vol_id, patches, vol_meta, patch_size, stride):
     try:
@@ -169,24 +167,6 @@ class Base(BasePL):
         preds = preds.round()
         return preds
 
-    def on_train_epoch_start(self):
-        train_sampler = self.get_sampler('train')
-        valid_sampler = self.get_sampler('valid')
-
-        file_ids_t = train_sampler.sample_ids()
-        file_ids_v = valid_sampler.sample_ids()
-        package = [file_ids_t, file_ids_v]
-
-        # ensure that each process validates on the same subset of files in ddp
-        # otherwise because a sampler is initialized in each process and ddp distributes
-        # the data further we end up with partial predictions for e.g. 4 volumes instead of
-        # full predictions (all patches) for the 2 required volumes
-        if dist.is_initialized():
-            # broadcast sends the package object from the specified rank (0) and replaces it on all other ranks
-            dist.broadcast_object_list(package, 0)
-
-        train_sampler.file_ids, valid_sampler.file_ids = package
-
     def training_step(self, batch, batch_idx):
         self.train_iter += 1
         self.log(f'train/iter', self.train_iter)
@@ -232,6 +212,8 @@ class Base(BasePL):
         }
 
     def training_epoch_end(self, outs):
+        if outs is None: return
+        for out in outs: del out['loss']
         if dist.is_initialized():
             outs = self.gather_outs(outs)
 
@@ -254,7 +236,7 @@ class Base(BasePL):
     def validation_step(self, batch, batch_idx):
         self.valid_iter += 1
         self.log(f'valid/iter', self.valid_iter)
-        x, targs, (vol_ids, _)  = self.prepare_batch(batch, 'valid')
+        x, targs, (vol_ids, patch_ids) = self.prepare_batch(batch, 'valid')
         preds = self(x)
         if isinstance(preds, torch.Tensor):
             preds = self.crop_preds(preds, targs)
@@ -268,12 +250,19 @@ class Base(BasePL):
             denom = preds.sum(dim=sum_dims) + targs.sum(dim=sum_dims)
             return { 'loss': loss.item(), 'inter': inter.item(), 'denom': denom.item() }
         else:
-            return { 'vol_ids': vol_ids, 'loss': loss.item(), 'preds': preds, 'targs': targs }
+            return {
+                'vol_ids': vol_ids,
+                'patch_ids': patch_ids,
+                'loss': loss.item(),
+                'preds': preds,
+                'targs': targs
+            }
 
     def validation_step_end(self, outs):
         if self.fast_val: return outs
 
         outs['vol_ids'] = outs['vol_ids'].cpu().numpy().astype(np.uint8)
+        outs['patch_ids'] = outs['patch_ids'].cpu().numpy().astype(np.int64)
         outs['preds'] = self.apply_nonlinearity(outs['preds'])
         outs['preds'] = outs['preds'].cpu().numpy().astype(np.uint8)
         outs['targs'] = outs['targs'].cpu().numpy().astype(np.uint8)
@@ -282,7 +271,6 @@ class Base(BasePL):
     def validation_epoch_end(self, outs):
         if dist.is_initialized():
             outs = self.gather_outs(outs)
-
             if dist.get_rank() != 0:
                 self.log('valid/loss', np.inf)
                 return
@@ -313,18 +301,22 @@ class Base(BasePL):
         self.log('valid/loss', loss)
 
     def validate_full(self, outs):
-        # skip if validation sanity check
         assert hasattr(self, 'ds_meta'), 'Provide volume shapes to use full validation'
+        # skip if validation sanity check
         n = 2 if not dist.is_initialized() else 2 * dist.get_world_size()
         if len(outs) <= n: return
 
         # gather all patches per volume
-        preds = defaultdict(list)
-        targs = defaultdict(list)
+        preds = defaultdict(dict)
+        targs = defaultdict(dict)
         for batch in outs:
-            for i, vol_id in enumerate(batch['vol_ids']):
-                preds[vol_id].append(batch['preds'][i])
-                targs[vol_id].append(batch['targs'][i])
+            for i, patch_id in enumerate(batch['patch_ids']):
+                vol_id = batch['vol_ids'][i]
+                preds[vol_id][patch_id] = batch['preds'][i]
+                targs[vol_id][patch_id] = batch['targs'][i]
+        
+        preds = { vol_id: [ patch for _, patch in sorted(patches.items()) ] for vol_id, patches in preds.items() }
+        targs = { vol_id: [ patch for _, patch in sorted(patches.items()) ] for vol_id, patches in targs.items() }
 
         preds = { vol_id: np.concatenate(batches) for vol_id, batches in preds.items() }
         targs = { vol_id: np.concatenate(targs[vol_id]) for vol_id in preds }

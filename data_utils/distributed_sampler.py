@@ -53,8 +53,8 @@ class DistributedSamplerWrapper(DistributedSampler):
         sampler,
         num_replicas: Optional[int] = None,
         rank: Optional[int] = None,
-        shuffle: bool = True,
-    ):
+        shuffle: bool = False,
+        drop_last: bool = False):
         """
         Args:
             sampler: Sampler used for subsampling
@@ -65,9 +65,11 @@ class DistributedSamplerWrapper(DistributedSampler):
             shuffle (bool, optional): If true (default),
               sampler will shuffle the indices
         """
-        super(DistributedSamplerWrapper, self).__init__(
-            DatasetFromSampler(sampler), num_replicas=num_replicas, rank=rank, shuffle=shuffle,
-        )
+        super().__init__(DatasetFromSampler(sampler),
+                         num_replicas=num_replicas,
+                         rank=rank,
+                         shuffle=shuffle,
+                         drop_last=drop_last)
         self.sampler = sampler
 
     def __iter__(self) -> Iterator[int]:

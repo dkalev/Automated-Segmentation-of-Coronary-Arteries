@@ -10,7 +10,7 @@ class ASOCASampler(Sampler):
                 oversample=False,
                 perc_per_epoch=1,
                 weight_update_step=0.01):
-        self.gen = np.random.default_rng()
+        self.gen = np.random.default_rng(0)
         self.shuffle = shuffle
         self.oversample = oversample
         self.perc_per_epoch = perc_per_epoch
@@ -49,6 +49,8 @@ class ASOCASampler(Sampler):
     @file_ids.setter
     def file_ids(self, val):
         self._file_ids = val
+        self._max_patches = max([ self.vol_meta[fid]['n_patches'] for fid in val ])
+        self._total_patches = sum([ self.vol_meta[fid]['n_patches'] for fid in val ])
 
     def get_sample_weights(self, samples):
         samples = np.array(samples)
