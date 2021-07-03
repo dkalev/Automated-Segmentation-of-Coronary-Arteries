@@ -36,10 +36,23 @@ class Baseline3DCNN(Base):
                 {'in_channels': 120, 'out_channels': 360 },
                 {'in_channels': 360, 'out_channels': 120 },
             ]
+        elif arch == 'fully_conv':
+            block_params = [
+                {'in_channels': 1, 'out_channels': 120, 'kernel_size': 11 },
+                {'in_channels': 120, 'out_channels': 120, 'kernel_size': 7 },
+                {'in_channels': 120, 'out_channels': 120, 'kernel_size': 5 },
+                {'in_channels': 120, 'out_channels': 120, 'kernel_size': 5 },
+                {'in_channels': 120, 'out_channels': 120, 'kernel_size': 5 },
+            ]
+
+        for b_params in block_params:
+            for k, v in common_params.items():
+                if k not in b_params:
+                    b_params[k] = v
 
         blocks = [
             nn.Sequential(
-                nn.Conv3d(**b_params, **common_params),
+                nn.Conv3d(**b_params),
                 nn.InstanceNorm3d(b_params['out_channels'], affine=True),
                 nn.ReLU(inplace=True),
             ) for b_params in block_params
@@ -52,6 +65,9 @@ class Baseline3DCNN(Base):
 
         if arch == 'strided':
             self.crop = np.array([11,11,11])
+        elif arch == 'fully_conv':
+            self.crop = np.sum([ bp['kernel_size']//2 for bp in block_params ])
+            self.crop = np.array([self.crop, self.crop, self.crop])
         else:
             self.crop = (common_params['kernel_size']//2) * len(blocks[:-1]) # last layer doesn't affect crop
             self.crop = np.array([self.crop, self.crop, self.crop])
