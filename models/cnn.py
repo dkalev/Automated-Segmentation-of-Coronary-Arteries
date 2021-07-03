@@ -1,4 +1,3 @@
-import torch
 import torch.nn as nn
 from .base import Base
 import numpy as np

@@ -13,6 +13,7 @@ from collections import defaultdict
 from data_utils.helpers import get_volume_pred
 from typing import Iterable
 from itertools import repeat
+import wandb
 
 
 def get_volume(vol_id, patches, vol_meta, patch_size, stride):
@@ -232,6 +233,12 @@ class Base(BasePL):
 
         train_sampler = self.get_sampler('train')
         train_sampler.update_patch_weights(losses)
+
+        if isinstance(self.trainer.logger, pl.loggers.WandbLogger) and (not dist.is_initialized() or dist.get_rank() == 0):
+            self.trainer.logger.experiment.log({
+                'weights': wandb.Histogram([w for vol in train_sampler.vol_meta.values() for w in vol['weights']]),
+                'epoch': self.trainer.current_epoch,
+            })
 
     def validation_step(self, batch, batch_idx):
         self.valid_iter += 1
