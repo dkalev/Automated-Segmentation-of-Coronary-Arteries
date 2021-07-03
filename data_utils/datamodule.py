@@ -27,6 +27,7 @@ class AsocaDataModule(DatasetBuilder, LightningDataModule):
                 oversample=False,
                 perc_per_epoch_train=1,
                 perc_per_epoch_val=1,
+                weight_update_step=0.01,
                 data_dir='dataset/processed',
                 sourcepath='dataset/ASOCA2020Data.zip', **kwargs):
         super().__init__(logger, *args, sourcepath=sourcepath, **kwargs)
@@ -43,6 +44,7 @@ class AsocaDataModule(DatasetBuilder, LightningDataModule):
 
         self.stride = patch_stride
         self.oversample = oversample
+        self.weight_update_step = weight_update_step
         self.perc_per_epoch_train = perc_per_epoch_train
         self.perc_per_epoch_val = perc_per_epoch_val
         self.data_dir = data_dir
@@ -99,6 +101,7 @@ class AsocaDataModule(DatasetBuilder, LightningDataModule):
             train_ds = AsocaDataset(ds_path=self.data_dir, split='train')
             sampler = ASOCASampler(train_ds.vol_meta,
                                     oversample=self.oversample,
+                                    weight_update_step=self.weight_update_step,
                                     perc_per_epoch=self.perc_per_epoch_train)
         elif self.trainer.current_epoch > 0 and dist.is_initialized():
             sampler = self.trainer.train_dataloader.sampler.sampler

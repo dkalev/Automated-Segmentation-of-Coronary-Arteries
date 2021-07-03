@@ -7,6 +7,7 @@ dataset:
     resample_vols: false
     oversample: true
     crop_empty: false
+    weight_update_step: 0.5
     perc_per_epoch_train: 0.25
     perc_per_epoch_val: 0.25
     data_dir: dataset/processed
