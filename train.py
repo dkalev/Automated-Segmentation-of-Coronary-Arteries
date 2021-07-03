@@ -134,12 +134,12 @@ if __name__ == '__main__':
     hparams = vars(parser.parse_args())
     hparams = parse_dict(hparams)
 
-    multigpu = (isinstance(hparams['train']['gpus'], int) and hparams['train']['gpus'] > 1) \
-	or (isinstance(hparams['train']['gpus'], list) and len(hparams['train']['gpus']) > 1)
-
     with open(hparams['config_path'], 'r') as f:
         hparams = update_dict(hparams, yaml.safe_load(f))
         print(json.dumps(hparams, indent=2))
+
+    multigpu = (isinstance(hparams['train']['gpus'], int) and hparams['train']['gpus'] > 1) \
+	or (isinstance(hparams['train']['gpus'], list) and len(hparams['train']['gpus']) > 1)
 
     tparams = { 'debug': hparams['debug'], **hparams['train']}
 
