@@ -110,6 +110,7 @@ if __name__ == '__main__':
     parser.add_argument('--dataset.crop_empty', type=bool_type)
     parser.add_argument('--dataset.perc_per_epoch_train', type=float)
     parser.add_argument('--dataset.perc_per_epoch_val', type=float)
+    parser.add_argument('--dataset.weight_update_step', type=float)
     parser.add_argument('--dataset.sample_every_epoch', type=bool_type)
     parser.add_argument('--dataset.data_dir')
     parser.add_argument('--dataset.sourcepath')
