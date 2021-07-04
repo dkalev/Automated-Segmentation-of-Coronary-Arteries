@@ -8,6 +8,7 @@ from tqdm import tqdm
 from pathlib import Path
 from skimage.transform import resize
 from collections import OrderedDict
+from multiprocessing import get_context
 from concurrent.futures import ProcessPoolExecutor
 from .helpers import get_patch_padding, vol2patches
 
@@ -232,7 +233,7 @@ class DatasetBuilder():
                     ) for file_id in range(40) ]
 
 
-        with ProcessPoolExecutor(max_workers=self.num_workers) as exec:
+        with ProcessPoolExecutor(max_workers=self.num_workers, mp_context=get_context('spawn')) as exec:
            train_paths = [ (p[1], p[2]) for p in paths if p[-1] == 'train' ]
            fg_voxels = list(tqdm(exec.map(self._get_foreground, train_paths), total=len(train_paths)))
            fg_voxels = np.concatenate(fg_voxels)
