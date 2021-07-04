@@ -85,7 +85,7 @@ def get_model(tparams):
     elif tparams['model'] == 'sftcnn':
         model = SteerableFTCNN(**{**kwargs, **tparams['steerable']})
     elif tparams['model'] == 'eunet':
-        model = EquivUNet(**{**kwargs, **tparams['steerable']})
+        model = EquivUNet(**kwargs)
 
     if tparams['model'] in equivariant_models and not kwargs['initialize']:
         model.init()

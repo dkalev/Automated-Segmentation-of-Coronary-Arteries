@@ -39,6 +39,9 @@ class GatedFieldType(enn.FieldType):
             dim = sum([(2*l+1)**2 for l in range(max_freq+1)]) + 1 # + 1 for gate per directsum of higher frequencies
         else:
             raise ValueError(f'type must be on of ["trivial", "spherical", "so3"], given: {type}')
+        
+        if dim > channels:
+            raise ValueError(f'Cannot build field of type {type}. The field requires at least {dim} channels, {channels} channels specified')
 
         n_irreps, n_rem = channels // dim, channels % dim
         n_triv = n_irreps + n_rem
