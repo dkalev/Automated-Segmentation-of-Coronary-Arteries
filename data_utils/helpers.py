@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 import torch.nn.functional as F
+from skimage.transform import resize
 
 def get_padding(input_shape, output_shape):
     input_shape = np.array(input_shape) if not isinstance(input_shape, np.ndarray) else input_shape
@@ -72,7 +73,10 @@ def get_volume_pred(patches, vol_meta, patch_size, stride, normalize=True):
     res = patches2vol(patches.view(out_shape), patch_size, stride)
     output_pad = get_padding(res.shape, vol_meta['shape_orig'])
     res = F.pad(res, output_pad)
-    if normalize: res = torch.sigmoid(res)
+
     if to_numpy: res = res.numpy()
+    if vol_meta['shape_orig'] != vol_meta['shape_resampled']:
+        res = resize(res, vol_meta['shape_orig'], order=3, preserve_range=True)
+    if normalize: res = torch.sigmoid(res)
     return res
 
