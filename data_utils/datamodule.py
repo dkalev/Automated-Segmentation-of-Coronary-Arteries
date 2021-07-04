@@ -89,6 +89,7 @@ class AsocaDataModule(DatasetBuilder, LightningDataModule):
         dataset = AsocaDataset(ds_path=self.data_dir, split=split)
 
         if not self.sample_every_epoch and self.trainer.current_epoch > 0:
+            dataset.file_ids = sampler.file_ids
             return dataset, sampler
 
         package = [sampler.sample_ids()]
