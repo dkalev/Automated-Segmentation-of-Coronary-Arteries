@@ -28,6 +28,7 @@ class AsocaDataModule(DatasetBuilder, LightningDataModule):
                 perc_per_epoch_train=1,
                 perc_per_epoch_val=1,
                 weight_update_step=0.01,
+                sample_every_epoch=True,
                 data_dir='dataset/processed',
                 sourcepath='dataset/ASOCA2020Data.zip', **kwargs):
         super().__init__(logger, *args, sourcepath=sourcepath, **kwargs)
@@ -47,6 +48,7 @@ class AsocaDataModule(DatasetBuilder, LightningDataModule):
         self.weight_update_step = weight_update_step
         self.perc_per_epoch_train = perc_per_epoch_train
         self.perc_per_epoch_val = perc_per_epoch_val
+        self.sample_every_epoch = sample_every_epoch
         self.data_dir = data_dir
 
     def prepare_data(self):
@@ -83,13 +85,18 @@ class AsocaDataModule(DatasetBuilder, LightningDataModule):
         # otherwise because a sampler is initialized in each process 
         # we end up with partial predictions for e.g. 4 volumes instead of
         # full predictions (all patches) for the 2 required volumes
+
+        dataset = AsocaDataset(ds_path=self.data_dir, split=split)
+
+        if not self.sample_every_epoch and self.trainer.current_epoch > 0:
+            return dataset, sampler
+
         package = [sampler.sample_ids()]
         dist.barrier()
         # broadcast sends the package object from the specified rank (0) and replaces it on all other ranks
         dist.broadcast_object_list(package, 0)
 
         sampler.file_ids = package[0]
-        dataset = AsocaDataset(ds_path=self.data_dir, split=split)
         dataset.file_ids = package[0]
 
         return dataset, sampler
@@ -105,7 +112,6 @@ class AsocaDataModule(DatasetBuilder, LightningDataModule):
                                     perc_per_epoch=self.perc_per_epoch_train)
         elif self.trainer.current_epoch > 0 and dist.is_initialized():
             sampler = self.trainer.train_dataloader.sampler.sampler
-
         if dist.is_initialized():
             train_ds, sampler = self.sync_samplers(sampler, 'train')
             sampler = DistributedSamplerWrapper(sampler=sampler, num_replicas=dist.get_world_size(), rank=dist.get_rank())

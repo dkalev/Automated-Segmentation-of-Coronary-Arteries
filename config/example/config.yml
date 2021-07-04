@@ -10,6 +10,7 @@ dataset:
     weight_update_step: 0.5
     perc_per_epoch_train: 0.25
     perc_per_epoch_val: 0.25
+    sample_every_epoch: true
     data_dir: dataset/processed
     sourcepath: dataset/ASOCA2020Data.zip
 train:
