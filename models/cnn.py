@@ -21,12 +21,12 @@ class Baseline3DCNN(Base):
             ]
         elif arch == 'strided':
             block_params = [
-                {'in_channels': 1, 'out_channels': 180 , 'stride': 2 },
-                {'in_channels': 180, 'out_channels': 360  },
-                {'in_channels': 360, 'out_channels': 720 },
-                {'in_channels': 720, 'out_channels': 720 },
-                {'in_channels': 720, 'out_channels': 720 },
-                {'in_channels': 720, 'out_channels': 120 },
+                {'in_channels': 1, 'out_channels': 120 , 'stride': 2 },
+                {'in_channels': 120, 'out_channels': 360  },
+                {'in_channels': 360, 'out_channels': 360 },
+                {'in_channels': 360, 'out_channels': 360 },
+                {'in_channels': 360, 'out_channels': 360 },
+                # {'in_channels': 360, 'out_channels': 360 },
             ]
         elif arch == 'patch64':
             block_params = [
@@ -63,7 +63,7 @@ class Baseline3DCNN(Base):
         )
 
         if arch == 'strided':
-            self.crop = np.array([11,11,11])
+            self.crop = np.array([18,18,18])
         elif arch == 'fully_conv':
             self.crop = np.sum([ bp['kernel_size']//2 for bp in block_params ])
             self.crop = np.array([self.crop, self.crop, self.crop])
