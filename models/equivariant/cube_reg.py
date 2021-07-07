@@ -14,23 +14,19 @@ class CubeRegCNN(BaseEquiv):
         gspace = gspaces.octaOnR3()
         super().__init__(gspace, in_channels, kernel_size, padding, **kwargs)
 
-        small_type = enn.FieldType(self.gspace, 16*[self.gspace.regular_repr])
-        mid_type   = enn.FieldType(self.gspace, 64*[self.gspace.regular_repr])
-        final_type = enn.FieldType(self.gspace, 32*[self.gspace.fibergroup.cube_vertices_representation])
+        type7  = enn.FieldType(self.gspace, 7*[self.gspace.regular_repr])
+        type14 = enn.FieldType(self.gspace, 14*[self.gspace.regular_repr])
+        final_type = enn.FieldType(self.gspace, 84*[self.gspace.fibergroup.cube_vertices_representation])
 
         get_block = partial(self.get_block, kernel_size=kernel_size, padding=self.padding, bias=False, initialize=initialize)
 
         blocks = [
-            get_block(self.input_type, small_type, stride=2),
-            get_block(small_type, small_type),
-            get_block(small_type, small_type),
-            get_block(small_type, small_type),
-            get_block(small_type, small_type),
-            get_block(small_type, small_type),
-            get_block(small_type, small_type),
-            get_block(small_type, small_type),
-            get_block(small_type, small_type),
-            get_block(small_type, final_type),
+            get_block(self.input_type, type7, stride=2),
+            get_block(type7, type14),
+            get_block(type14, type14),
+            get_block(type14, type14),
+            get_block(type14, type14),
+            get_block(type14, final_type),
         ]
 
         self.model = enn.SequentialModule( *blocks )

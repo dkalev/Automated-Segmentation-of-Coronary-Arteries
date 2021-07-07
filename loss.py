@@ -76,7 +76,7 @@ class DiceBCELoss(CombinedLoss):
 
 class DiceBCE_OHNMLoss(CombinedLoss):
     """ Online Hard Negative Mining """
-    def __init__(self, *args, ohnm_ratio=3, default_neg_perc=0.1, **kwargs):
+    def __init__(self, *args, ohnm_ratio=30, default_neg_perc=0.1, **kwargs):
         super().__init__(*args, **kwargs)
         self.ohnm_ratio = ohnm_ratio
         # percentage of negative samples used in patches without positive samples
@@ -89,28 +89,11 @@ class DiceBCE_OHNMLoss(CombinedLoss):
             return int(self.default_neg_perc * n_neg)
         return min(n_pos * self.ohnm_ratio, n_neg)
 
-    @staticmethod
-    def pad_loss_batch(idxs, targs):
-        # the subset of indexes selected by ohnm are later on passed to the dice loss
-        # to ensure it is complatible we have to check if the number of indexes is
-        # divisible by batch_size * num_classes and if not to fill it up with additional indexes
-        n_needed = len(idxs) % (targs.shape[0] * targs.shape[1])
-        if n_needed == 0: return idxs
-
-        # trick compute set difference while staying on cuda
-        combined = torch.cat([torch.arange(targs.numel(), device=targs.device), idxs])
-        uniques, counts = combined.unique(return_counts=True)
-        remaining_idxs = uniques[counts == 1]
-
-        extra_idxs = remaining_idxs.float().multinomial(n_needed).long()
-        return torch.cat([idxs, extra_idxs])
-
     def get_idxs(self, losses, targs):
         n_hns = self.get_num_hns(targs)
-        _, hns_idxs = losses[targs==0].flatten().topk(n_hns)
+        _, hns_idxs = losses.clone().masked_fill(targs==1,0).flatten().topk(n_hns)
         pos_idxs = torch.nonzero(targs.flatten()==1)
         idxs = torch.cat([hns_idxs.flatten(), pos_idxs.flatten()])
-        idxs = self.pad_loss_batch(idxs, targs)
         return idxs
 
     @staticmethod
@@ -118,7 +101,7 @@ class DiceBCE_OHNMLoss(CombinedLoss):
         return data.flatten()[idxs].view(*data.shape[:2], -1)
 
     def forward(self, preds, targs):
-        losses = self.bce(preds, targs, reduction='none')
+        losses = self.bce(preds.clone(), targs, reduction='none')
         idxs = self.get_idxs(losses, targs)
         preds = self.get_samples(preds, idxs)
         targs = self.get_samples(targs, idxs)
