@@ -189,7 +189,7 @@ class FTNonLinearity(enn.EquivariantModule):
 
 
 class BaseEquiv(Base):
-    def __init__(self, gspace, in_channels=1, kernel_size=3, padding=0, initialize=False, **kwargs):
+    def __init__(self, gspace, in_channels=1, kernel_size=3, padding=0, **kwargs):
         super().__init__(**kwargs)
 
         self.gspace = gspace
@@ -200,7 +200,8 @@ class BaseEquiv(Base):
         # FIXME initialize the rest of the modules when starting to use them
         for m in self.modules():
             if isinstance(m, enn.R3Conv):
-                m.weights.data = torch.randn_like(m.weights)
+                enn.init.generalized_he_init(m.weights.data, m.basisexpansion, cache=True)
+
 
     def pre_forward(self, x):
         if isinstance(x, torch.Tensor):
