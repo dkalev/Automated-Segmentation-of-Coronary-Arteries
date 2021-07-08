@@ -18,11 +18,11 @@ class EquivUNet(BaseEquiv):
         self.deep_supervision = deep_supervision
         self.initialize = initialize
 
-        type32  = GatedFieldType.build(gspace, 32, type=type)
-        type64  = GatedFieldType.build(gspace, 64, type=type)
-        type128 = GatedFieldType.build(gspace, 128, type=type)
-        type256 = GatedFieldType.build(gspace, 256, type=type)
-        type320 = GatedFieldType.build(gspace, 320, type=type)
+        type32  = GatedFieldType.build(gspace, 32, type=type, max_freq=2)
+        type64  = GatedFieldType.build(gspace, 64, type=type, max_freq=3)
+        type128 = GatedFieldType.build(gspace, 128, type=type, max_freq=3)
+        type256 = GatedFieldType.build(gspace, 256, type=type, max_freq=3)
+        type320 = GatedFieldType.build(gspace, 320, type=type, max_freq=3)
 
         self.encoders = nn.ModuleList([
             self.get_encoder(self.input_type, type32, stride=1),
