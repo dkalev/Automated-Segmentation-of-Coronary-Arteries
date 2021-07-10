@@ -18,11 +18,11 @@ class EquivUNet(BaseEquiv):
         self.deep_supervision = deep_supervision
         self.initialize = initialize
 
-        type32  = GatedFieldType.build(gspace, 32, type=type, max_freq=2)
-        type64  = GatedFieldType.build(gspace, 64, type=type, max_freq=3)
-        type128 = GatedFieldType.build(gspace, 128, type=type, max_freq=3)
-        type256 = GatedFieldType.build(gspace, 256, type=type, max_freq=3)
-        type320 = GatedFieldType.build(gspace, 320, type=type, max_freq=3)
+        type32  = GatedFieldType.build(gspace, 32, type=type, max_freq=1, direct_sum=False)
+        type64  = GatedFieldType.build(gspace, 64, type=type, max_freq=3, direct_sum=False)
+        type128 = GatedFieldType.build(gspace, 128, type=type, max_freq=3, direct_sum=False)
+        type256 = GatedFieldType.build(gspace, 256, type=type, max_freq=3, direct_sum=False)
+        type320 = GatedFieldType.build(gspace, 320, type=type, max_freq=3, direct_sum=False)
 
         self.encoders = nn.ModuleList([
             self.get_encoder(self.input_type, type32, stride=1),
@@ -52,19 +52,14 @@ class EquivUNet(BaseEquiv):
                 'decoder': self.get_decoder(type32.no_gates()+type32.no_gates(), type32) }),
         ])
 
-        self.pool = enn.NormPool(self.decoders[-1]['decoder'].out_type)
-        pool_out = self.pool.out_type.size
 
         if self.deep_supervision:
-            self.heads = nn.ModuleList([
-                nn.Conv3d(320, 1, kernel_size=1, bias=False),
-                nn.Conv3d(256, 1, kernel_size=1, bias=False),
-                nn.Conv3d(128, 1, kernel_size=1, bias=False),
-                nn.Conv3d(64, 1, kernel_size=1, bias=False),
-                nn.Conv3d(32, 1, kernel_size=1, bias=False),
-            ])
+            self.pools = [ enn.NormPool(decoder.out_type) for decoder in self.decoders ]
+            self.heads = nn.ModuleList([ nn.Conv3d(pool.out_type.size, 1, kernel_size=1) for pool in self.pools ])
         else:
-            self.final = nn.Conv3d(pool_out, 1, kernel_size=1, bias=False)
+            self.pool = enn.NormPool(self.decoders[-1]['decoder'].out_type)
+            pool_out = self.pool.out_type.size
+            self.final = nn.Conv3d(pool_out, 1, kernel_size=1)
 
         self.register_buffer('ds_weight',
             torch.FloatTensor([0., 0.06666667, 0.13333333, 0.26666667, 0.53333333])
@@ -76,13 +71,13 @@ class EquivUNet(BaseEquiv):
     @staticmethod
     def get_nonlin(ftype):
         if ftype.gated and ftype.gates:
+            labels = len(ftype.trivials) * ['trivial'] + (len(ftype.gated) + len(ftype.gates)) * ['gate'] 
+            labels_gate = len(ftype.gated)*['gated']+len(ftype.gates)*['gate']
             return enn.MultipleModule(ftype,
-                labels=[
-                    *( len(ftype.trivials) * ['trivial'] + (len(ftype.gated) + len(ftype.gates)) * ['gate'] )
-                ],
+                labels=labels,
                 modules=[
                     (enn.ELU(ftype.trivials, inplace=True), 'trivial'),
-                    (enn.GatedNonLinearity1(ftype.gated+ftype.gates, len(ftype.gated)*['gated']+len(ftype.gates)*['gate']), 'gate')
+                    (enn.GatedNonLinearity1(ftype.gated+ftype.gates, labels_gate), 'gate')
                 ]
             )
         else:
@@ -90,20 +85,20 @@ class EquivUNet(BaseEquiv):
 
     def get_encoder(self, input_type, out_type, stride=2):
         return enn.SequentialModule(OrderedDict({
-            'conv1': enn.R3Conv(input_type, out_type, kernel_size=self.kernel_size, stride=stride, padding=self.padding, initialize=self.initialize),
+            'conv1': enn.R3Conv(input_type, out_type, kernel_size=self.kernel_size, stride=stride, padding=self.padding, bias=False, initialize=self.initialize),
             'bnorm1': enn.IIDBatchNorm3d(out_type),
             'nonlin1': self.get_nonlin(out_type),
-            'conv2': enn.R3Conv(out_type.no_gates(), out_type, kernel_size=self.kernel_size, padding=self.padding, initialize=self.initialize),
+            'conv2': enn.R3Conv(out_type.no_gates(), out_type, kernel_size=self.kernel_size, padding=self.padding, bias=False, initialize=self.initialize),
             'bnorm2': enn.IIDBatchNorm3d(out_type),
             'nonlin2': self.get_nonlin(out_type),
         }))
 
     def get_decoder(self, input_type, out_type):
         return enn.SequentialModule(OrderedDict({
-            'conv1': enn.R3Conv(input_type, out_type, kernel_size=self.kernel_size, padding=self.padding, initialize=self.initialize),
+            'conv1': enn.R3Conv(input_type, out_type, kernel_size=self.kernel_size, padding=self.padding, bias=False, initialize=self.initialize),
             'bnorm1': enn.IIDBatchNorm3d(out_type),
             'nonlin1': self.get_nonlin(out_type),
-            'conv2': enn.R3Conv(out_type.no_gates(), out_type, kernel_size=self.kernel_size, padding=self.padding, initialize=self.initialize),
+            'conv2': enn.R3Conv(out_type.no_gates(), out_type, kernel_size=self.kernel_size, padding=self.padding, bias=False, initialize=self.initialize),
             'bnorm2': enn.IIDBatchNorm3d(out_type),
             'nonlin2': self.get_nonlin(out_type),
         }))
@@ -116,10 +111,10 @@ class EquivUNet(BaseEquiv):
 
     def get_bottleneck(self, ftype):
         return enn.SequentialModule(OrderedDict({
-            'conv1': enn.R3Conv(ftype.no_gates(), ftype, kernel_size=self.kernel_size, stride=2, padding=self.padding, initialize=self.initialize),
+            'conv1': enn.R3Conv(ftype.no_gates(), ftype, kernel_size=self.kernel_size, stride=2, padding=self.padding, bias=False, initialize=self.initialize),
             'bnorm1': enn.IIDBatchNorm3d(ftype),
             'nonlin1': self.get_nonlin(ftype),
-            'conv2': enn.R3Conv(ftype.no_gates(), ftype, kernel_size=self.kernel_size, padding=self.padding, initialize=self.initialize),
+            'conv2': enn.R3Conv(ftype.no_gates(), ftype, kernel_size=self.kernel_size, padding=self.padding, bias=False, initialize=self.initialize),
             'bnorm2': enn.IIDBatchNorm3d(ftype),
             'nonlin2': self.get_nonlin(ftype),
         }))
@@ -154,12 +149,13 @@ class EquivUNet(BaseEquiv):
             if self.deep_supervision:
                 outputs.append(x)
 
-        x = self.pool(x)
-        x = x.tensor
         if self.deep_supervision:
+            outputs = [ pool(out).tensor for pool, out in zip(self.pools, outputs) ]
             outputs = [ head(out) for head, out in zip(self.heads, outputs) ]
             outputs = [ F.interpolate(out, size=targ_size) for out in outputs ]
             return outputs
         else:
+            x = self.pool(x)
+            x = x.tensor
             return self.final(x)
 
