@@ -91,14 +91,15 @@ class DatasetBuilder():
 
         with zipfile.ZipFile(self.sourcepath, 'r') as zip_ref:
             zip_ref.extractall(self.data_dir)
-        data_dir = Path(self.data_dir, 'ASOCA2020Data') # FIXME
+        data_dir = Path(self.data_dir, 'temp')
+        os.makedirs(data_dir, exist_ok=True)
         for folder in os.listdir(data_dir):
             shutil.move(str(Path(data_dir, folder)), self.data_dir)
         os.rmdir(data_dir)
 
     @staticmethod
     def get_resampled_shape(volume, spacing):
-        target_spacing = np.array([0.625, 0.3964845058, 0.3964845058 ])
+        target_spacing = np.array([0.5, 0.5, 0.5])
         return ((spacing / target_spacing) * volume.shape).round().astype(np.int64)
 
     def get_crop_bbox(self, data):
