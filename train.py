@@ -162,7 +162,6 @@ if __name__ == '__main__':
         'accelerator': 'ddp' if multigpu else None,
         'max_epochs': tparams['n_epochs'],
         # disable logging in debug mode
-        'checkpoint_callback': not tparams['debug'],
         'logger': logger,
         'auto_lr_find': tparams['auto_lr_find'],
         'gradient_clip_val': 12,
@@ -181,4 +180,3 @@ if __name__ == '__main__':
         logger.watch(model)
 
     trainer.fit(model, asoca_dm)
-

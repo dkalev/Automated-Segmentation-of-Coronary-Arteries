@@ -91,11 +91,6 @@ class DatasetBuilder():
 
         with zipfile.ZipFile(self.sourcepath, 'r') as zip_ref:
             zip_ref.extractall(self.data_dir)
-        data_dir = Path(self.data_dir, 'temp')
-        os.makedirs(data_dir, exist_ok=True)
-        for folder in os.listdir(data_dir):
-            shutil.move(str(Path(data_dir, folder)), self.data_dir)
-        os.rmdir(data_dir)
 
     @staticmethod
     def get_resampled_shape(volume, spacing):
@@ -148,8 +143,6 @@ class DatasetBuilder():
 
         mask, header = nrrd.read(mask_path, index_order='C')
 
-        padding = get_patch_padding(mask.shape, self.patch_size, self.stride)
-
         if split == 'train' and self.crop_empty:
             crop_mask = self.get_crop_bbox(mask)
             mask = mask[crop_mask]
@@ -159,6 +152,8 @@ class DatasetBuilder():
             shape_resampled = self.get_resampled_shape(mask, spacing)
             dtype = mask.dtype
             mask = resize(mask.astype(float), shape_resampled, order=0, mode='constant', cval=0, clip=True, anti_aliasing=False).astype(dtype)
+
+        padding = get_patch_padding(mask.shape, self.patch_size, self.stride)
 
         mask_patches, _ = vol2patches(mask, self.patch_size, self.stride, padding)
 
