@@ -68,15 +68,16 @@ def get_volume_pred(patches, vol_meta, patch_size, stride, normalize=True):
         if dim == 1: patches = patches.squeeze(i)
 
     assert len(patches.shape) == 4
+    is_resampled = vol_meta['shape_orig'] != vol_meta['shape_resampled']
 
     out_shape = tuple(vol_meta['shape_patched'][:3]) + tuple(patches.shape[1:])
     res = patches2vol(patches.view(out_shape), patch_size, stride)
-    output_pad = get_padding(res.shape, vol_meta['shape_orig'])
+    interm_shape = vol_meta['shape_resampled'] if is_resampled else vol_meta['shape_orig']
+    output_pad = get_padding(res.shape, interm_shape)
     res = F.pad(res, output_pad)
 
     if to_numpy: res = res.numpy()
-    if vol_meta['shape_orig'] != vol_meta['shape_resampled']:
-        res = resize(res, vol_meta['shape_orig'], order=3, preserve_range=True)
+    if is_resampled: res = resize(res, vol_meta['shape_orig'], order=3, preserve_range=True)
     if normalize: res = torch.sigmoid(res)
     return res
 
