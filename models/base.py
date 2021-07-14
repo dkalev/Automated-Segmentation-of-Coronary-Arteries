@@ -333,12 +333,12 @@ class Base(BasePL):
             # build prediction volumes from patches
             pred_vols = dict(tqdm(
                 exec.map(get_volume, preds.keys(), preds.values(), vol_metas.values(), repeat(self.ds_meta['stride']), repeat(self.ds_meta['stride'])),
-                total=len(preds), position=2, desc='Building preds')
+                total=len(preds), position=2, leave=False, desc='Building preds')
             )
             # build target volumes from patches
             targ_vols = dict(tqdm(
                 exec.map(get_volume, targs.keys(), targs.values(), vol_metas.values(), repeat(self.ds_meta['stride']), repeat(self.ds_meta['stride'])),
-                total=len(targs), position=2, desc='Building targs')
+                total=len(targs), position=2, leave=False, desc='Building targs')
             )
 
             # gather all the data needed to compute the metrics
@@ -349,7 +349,7 @@ class Base(BasePL):
             # compute metrics for each volume
             metrics = list(tqdm(
                 exec.map(compute_vol_metrics, data),
-                total=len(data), position=2, desc='Computing metrics')
+                total=len(data), position=2, leave=False, desc='Computing metrics')
             )
 
         # finally aggregate accross volumes and log
