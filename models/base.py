@@ -278,14 +278,23 @@ class Base(BasePL):
     def validation_epoch_end(self, outs):
         if dist.is_initialized():
             outs = self.gather_outs(outs)
-            if dist.get_rank() != 0:
-                self.log('valid/loss', np.inf)
-                return
 
-        if self.fast_val:
-            self.validate_fast(outs)
+        if not dist.is_initialized() or dist.get_rank() == 0:
+            if self.fast_val:
+                metrics = self.validate_fast(outs)
+            else:
+                metrics = self.validate_full(outs)
         else:
-            self.validate_full(outs)
+            metrics = {}
+
+        if dist.is_initialized():
+            package = [metrics]
+            dist.broadcast_object_list(package, 0)
+            metrics = package[0]
+
+        self.log(f'valid/loss', metrics['valid/loss'])
+        self.log(f'valid/dice', metrics['valid/dice'])
+        self.log(f'valid/hd95', metrics['valid/hd95'])
         self.log('lr', self.get_lr())
 
     def gather_outs(self, outs):
@@ -304,8 +313,11 @@ class Base(BasePL):
         denom = np.sum([ out['denom'] for out in outs]) + 1e-10
         dice = 2 * inter / denom
         loss = np.mean([ out['loss'] for out in outs ])
-        self.log('valid/dice', dice)
-        self.log('valid/loss', loss)
+        return {
+            'valid/loss': loss,
+            'valid/dice': dice,
+            'valid/hd95': np.inf,
+        }
 
     def validate_full(self, outs):
         assert hasattr(self, 'ds_meta'), 'Provide volume shapes to use full validation'
@@ -352,10 +364,12 @@ class Base(BasePL):
                 total=len(data), position=2, leave=False, desc='Computing metrics')
             )
 
-        # finally aggregate accross volumes and log
-        self.log(f'valid/loss', np.mean([batch['loss'] for batch in outs]))
-        self.log(f'valid/dice', np.mean([v['dice'] for v in metrics]))
-        self.log(f'valid/hd95', np.mean([v['hd95'] for v in metrics]))
+        # finally aggregate accross volumes
+        return {
+            'valid/loss': np.mean([batch['loss'] for batch in outs]),
+            'valid/dice': np.mean([v['dice'] for v in metrics]),
+            'valid/hd95': np.mean([v['hd95'] for v in metrics]),
+        }
 
     def configure_optimizers(self):
         if self.optim_type == 'adam':

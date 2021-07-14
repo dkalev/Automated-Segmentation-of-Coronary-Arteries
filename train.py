@@ -165,7 +165,7 @@ if __name__ == '__main__':
         'logger': logger,
         'auto_lr_find': tparams['auto_lr_find'],
         'gradient_clip_val': 12,
-        'callbacks': [ ModelCheckpoint(monitor='valid/loss', mode='min') ],
+        'callbacks': None if tparams['debug'] else [ ModelCheckpoint(monitor='valid/loss', mode='min', verbose=True) ],
         'plugins': DDPPlugin(find_unused_parameters=False) if multigpu else None,
         'replace_sampler_ddp': False,
         'num_sanity_val_steps': 0,
