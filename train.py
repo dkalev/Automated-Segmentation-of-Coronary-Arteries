@@ -1,18 +1,15 @@
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
-from pytorch_lightning.loggers import TensorBoardLogger, WandbLogger
+from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.plugins import DDPPlugin
 from data_utils import AsocaDataModule
-from models import Baseline3DCNN, UNet, MobileNetV2, SteerableCNN, SteerableFTCNN, CubeRegCNN, IcoRegCNN, EquivUNet
-from collections import defaultdict
+from models import Baseline3DCNN, UNet, MobileNetV2, SteerableCNN, SteerableFTCNN, CubeUNet, IcoRegCNN, EquivUNet
 from pathlib import Path
 import numpy as np
 from copy import deepcopy
 import argparse
 import json
 import yaml
-import time
-import wandb
 import re
 
 import warnings
@@ -77,7 +74,7 @@ def get_model(tparams):
     elif tparams['model'] == 'mobilenet':
         model = MobileNetV2(**kwargs)
     elif tparams['model'] == 'cubereg':
-        model = CubeRegCNN(**kwargs)
+        model = CubeUNet(**{**kwargs, **tparams['cubereg']})
     elif tparams['model'] == 'icoreg':
         model = IcoRegCNN(**kwargs)
     elif tparams['model'] == 'scnn':
@@ -129,8 +126,9 @@ if __name__ == '__main__':
     parser.add_argument('--train.kernel_size', type=int)
 
     # # model specific params
-    parser.add_argument('--train.unet.deep_supervision', type=float)
+    parser.add_argument('--train.unet.deep_supervision')
     parser.add_argument('--train.cnn.arch')
+    parser.add_argument('--train.cubereg.arch')
     parser.add_argument('--train.steerable.type')
 
     hparams = vars(parser.parse_args())
@@ -165,7 +163,7 @@ if __name__ == '__main__':
         'logger': logger,
         'auto_lr_find': tparams['auto_lr_find'],
         'gradient_clip_val': 12,
-        'callbacks': None if tparams['debug'] else [ ModelCheckpoint(monitor='valid/loss', mode='min', verbose=True) ],
+        'callbacks': None if tparams['debug'] else [ ModelCheckpoint(monitor='valid/loss', mode='min') ],
         'plugins': DDPPlugin(find_unused_parameters=False) if multigpu else None,
         'replace_sampler_ddp': False,
         'num_sanity_val_steps': 0,
