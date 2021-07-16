@@ -3,7 +3,7 @@ from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.plugins import DDPPlugin
 from data_utils import AsocaDataModule
-from models import Baseline3DCNN, UNet, MobileNetV2, SteerableCNN, SteerableFTCNN, CubeUNet, IcoRegCNN, EquivUNet
+from models import Baseline3DCNN, UNet, MobileNetV2, SteerableCNN, SteerableFTCNN, CubeUNet, IcoUNet, GatedUNet
 from pathlib import Path
 import numpy as np
 from copy import deepcopy
@@ -76,13 +76,13 @@ def get_model(tparams):
     elif tparams['model'] == 'cubereg':
         model = CubeUNet(**{**kwargs, **tparams['cubereg']})
     elif tparams['model'] == 'icoreg':
-        model = IcoRegCNN(**kwargs)
+        model = IcoUNet(**{**kwargs, **tparams['icoreg']})
     elif tparams['model'] == 'scnn':
         model = SteerableCNN(**{**kwargs, **tparams['steerable']})
     elif tparams['model'] == 'sftcnn':
         model = SteerableFTCNN(**{**kwargs, **tparams['steerable']})
     elif tparams['model'] == 'eunet':
-        model = EquivUNet(**kwargs)
+        model = GatedUNet(**kwargs)
 
     if tparams['model'] in equivariant_models and not kwargs['initialize']:
         model.init()
@@ -129,6 +129,7 @@ if __name__ == '__main__':
     parser.add_argument('--train.unet.deep_supervision')
     parser.add_argument('--train.cnn.arch')
     parser.add_argument('--train.cubereg.arch')
+    parser.add_argument('--train.icoreg.arch')
     parser.add_argument('--train.steerable.type')
 
     hparams = vars(parser.parse_args())

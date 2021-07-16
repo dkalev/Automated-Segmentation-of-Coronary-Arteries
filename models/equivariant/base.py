@@ -4,6 +4,7 @@ import torch
 import numpy as np
 from e3cnn.group import directsum
 from typing import Tuple
+from abc import abstractmethod
 from ..base import Base
 
 
@@ -146,7 +147,7 @@ class FTNonLinearity(enn.EquivariantModule):
                  max_freq_in,
                  channels,
                  *grid_args,
-                 non_linearity='elu',
+                 non_linearity: str = 'elu',
                  max_freq_out: int = None,
                  moorepenrose: bool = True,
                  spherical: bool = False,
@@ -163,41 +164,37 @@ class FTNonLinearity(enn.EquivariantModule):
         super().__init__()
         self.channels = channels
         self.spherical = spherical
-        if hasattr(torch.nn.functional, non_linearity):
-            self.non_linearity = getattr(torch.nn.functional, non_linearity)
-        else:
-            raise ValueError(f'Unsupported non-linearity type: {non_linearity}')
-
+        self.non_linearity = self.get_nonlin(non_linearity)
         max_freq_out = max_freq_out or max_freq_in
 
         self.gspace = gspaces.rot3dOnR3()
-        rho = self.get_representation(max_freq_in)
+        rho    = self.get_representation(max_freq_in)
         rho_bl = self.get_representation(max_freq_out)
 
         self.dim = rho.size
         self.in_type  = enn.FieldType(self.gspace, [rho]*channels)
         self.out_type = enn.FieldType(self.gspace, [rho_bl]*channels)
 
-        grid = self.get_grid(*grid_args, **grid_kwargs)
-
-        # sensing matrix
-        kernel = self.get_kernel(max_freq_in)
-        A = np.stack([ kernel @ rho(g).T for g in grid ])
-        A /= np.sqrt(len(A))
-
-        # reconstruction matrix
-        kernel_bl = self.get_kernel(max_freq_out)
-        Abl = np.stack([ kernel_bl @ rho_bl(g).T for g in grid ])
-        Abl /= np.sqrt(len(Abl))
-
-        eps = 1e-8
-        if moorepenrose:
-            A_inv = np.linalg.inv(Abl.T @ Abl + eps * np.eye(Abl.shape[1])) @ Abl.T
-        else:
-            A_inv = Abl.T
+        grid  = self.get_grid(*grid_args, **grid_kwargs)
+        A     = self.build_sensing_matrix(rho, grid, max_freq_in)
+        A_inv = self.build_reconstruction_matrix(rho_bl, grid, max_freq_out, moorepenrose=moorepenrose)
 
         self.register_buffer('A', torch.tensor(A, dtype=torch.get_default_dtype()))
         self.register_buffer('Ainv', torch.tensor(A_inv, dtype=torch.get_default_dtype()))
+    
+    @staticmethod
+    def get_inv(x, moorepenrose=False, eps=1e-8):
+        if moorepenrose:
+            return np.linalg.inv(x.T @ x + eps * np.eye(x.shape[1])) @ x.T
+        else:
+            return x.T
+    
+    @staticmethod
+    def get_nonlin(nonlin_type):
+        if hasattr(torch.nn.functional, nonlin_type):
+            return getattr(torch.nn.functional, nonlin_type)
+        else:
+            raise ValueError(f'Unsupported non-linearity type: {nonlin_type}')
 
     def get_representation(self, max_freq):
         if self.spherical:
@@ -217,10 +214,24 @@ class FTNonLinearity(enn.EquivariantModule):
         else:
             return kernel_so3(max_freq)
 
+    def build_sensing_matrix(self, rho, grid, max_freq):
+        kernel = self.get_kernel(max_freq)
+        A = np.stack([ kernel @ rho(g).T for g in grid ])
+        A /= np.sqrt(len(A))
+        return A
+
+    def build_reconstruction_matrix(self, rho, grid, max_freq, moorepenrose=False):
+        kernel_bl = self.get_kernel(max_freq)
+        Abl = np.stack([ kernel_bl @ rho(g).T for g in grid ])
+        Abl /= np.sqrt(len(Abl))
+
+        A_inv = self.get_inv(Abl, moorepenrose=moorepenrose)
+        return A_inv
+
     def forward(self, x: enn.GeometricTensor):
         assert x.type == self.in_type
 
-        in_shape = (x.shape[0], self.channels, self.dim, *x.shape[2:])
+        in_shape  = (x.shape[0], self.channels, self.dim, *x.shape[2:])
         out_shape = (x.shape[0], len(self.Ainv) * self.channels, *x.shape[2:])
 
         # IFT
@@ -244,16 +255,18 @@ class BaseEquiv(Base):
     def __init__(self, gspace, in_channels=1, kernel_size=3, padding=0, **kwargs):
         super().__init__(**kwargs)
 
-        self.gspace = gspace
         self.padding = self.parse_padding(padding, kernel_size)
         self.input_type = enn.FieldType(self.gspace, in_channels*[self.gspace.trivial_repr])
+
+    @property
+    @abstractmethod
+    def gspace(self): pass
 
     def init(self):
         # FIXME initialize the rest of the modules when starting to use them
         for m in self.modules():
             if isinstance(m, enn.R3Conv):
                 enn.init.generalized_he_init(m.weights.data, m.basisexpansion, cache=True)
-
 
     def pre_forward(self, x):
         if isinstance(x, torch.Tensor):
