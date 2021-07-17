@@ -163,6 +163,7 @@ if __name__ == '__main__':
         'accelerator': 'ddp' if multigpu else None,
         'max_epochs': tparams['n_epochs'],
         # disable logging in debug mode
+        'checkpoint_callback': True if not tparams['debug'] else False,
         'logger': logger,
         'auto_lr_find': tparams['auto_lr_find'],
         'gradient_clip_val': 12,

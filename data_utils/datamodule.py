@@ -105,7 +105,7 @@ class AsocaDataModule(DatasetBuilder, LightningDataModule):
     def train_dataloader(self, batch_size=None, num_workers=None):
         if num_workers is None: num_workers = 3 if dist.is_initialized() else 4
         if batch_size is None: batch_size = self.batch_size
-        if self.trainer.current_epoch == 0:
+        if self.trainer.current_epoch == 0 or not dist.is_initialized():
             train_ds = AsocaDataset(ds_path=self.data_dir, split='train')
             sampler = ASOCASampler(train_ds.vol_meta,
                                     oversample=self.oversample,
@@ -121,7 +121,7 @@ class AsocaDataModule(DatasetBuilder, LightningDataModule):
     def val_dataloader(self, batch_size=None, num_workers=None):
         if num_workers is None: num_workers = 3 if dist.is_initialized() else 4
         if batch_size is None: batch_size = self.batch_size
-        if self.trainer.current_epoch == 0:
+        if self.trainer.current_epoch == 0 or not dist.is_initialized():
             valid_ds = AsocaDataset(ds_path=self.data_dir, split='valid')
             sampler = ASOCASampler(valid_ds.vol_meta, perc_per_epoch=self.perc_per_epoch_val)
         elif self.trainer.current_epoch > 0 and dist.is_initialized():
