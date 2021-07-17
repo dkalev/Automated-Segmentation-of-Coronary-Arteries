@@ -16,8 +16,7 @@ class EquivUNet(BaseEquiv):
             deep_supervision=False,
             initialize=True,
             **kwargs):
-        gspace = self.gspace
-        super().__init__(gspace, *args, kernel_size=kernel_size, padding=padding, **kwargs)
+        super().__init__(*args, kernel_size=kernel_size, padding=padding, **kwargs)
 
         self.kernel_size = kernel_size
         self.deep_supervision = deep_supervision

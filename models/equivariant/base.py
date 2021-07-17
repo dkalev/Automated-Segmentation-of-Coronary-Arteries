@@ -254,7 +254,7 @@ class FTNonLinearity(enn.EquivariantModule):
 
 
 class BaseEquiv(Base):
-    def __init__(self, gspace, in_channels=1, kernel_size=3, padding=0, **kwargs):
+    def __init__(self, in_channels=1, kernel_size=3, padding=0, **kwargs):
         super().__init__(**kwargs)
 
         self.padding = self.parse_padding(padding, kernel_size)
