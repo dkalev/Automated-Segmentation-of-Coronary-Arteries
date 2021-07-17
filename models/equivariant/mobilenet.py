@@ -1,12 +1,12 @@
 import e3cnn.nn as enn
 from e3cnn import gspaces
 from e3cnn.nn.field_type import FieldType
-from e3cnn.group import directsum
 import torch
 import torch.nn as nn
 import numpy as np
 from typing import Tuple
-from .base import BaseEquiv, FTNonLinearity, kernel_so3, kernel_sphere
+from .base import BaseEquiv
+from .ft_nonlinearity import FTNonLinearity, kernel_so3, kernel_sphere
 
 
 class FTGPool(enn.EquivariantModule):

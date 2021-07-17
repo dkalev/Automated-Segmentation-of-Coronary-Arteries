@@ -1,7 +1,7 @@
 from .base import EquivUNet
 import e3cnn.nn as enn
 import e3cnn.gspaces as gspaces
-from ..base import FTNonLinearity
+from ..ft_nonlinearity import FTNonLinearity
 
 
 class FTUNet(EquivUNet):

@@ -1,11 +1,9 @@
 import e3cnn.nn as enn
 from e3cnn import gspaces
-from e3cnn.group import directsum
-import torch
 import torch.nn as nn
 import numpy as np
-from typing import Tuple
-from .base import BaseEquiv, GatedFieldType, FTNonLinearity
+from .base import BaseEquiv, GatedFieldType
+from .ft_nonlinearity import FTNonLinearity
 
 
 class SteerableCNN(BaseEquiv):
