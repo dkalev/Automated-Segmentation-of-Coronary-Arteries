@@ -3,7 +3,7 @@ from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.plugins import DDPPlugin
 from data_utils import AsocaDataModule
-from models import Baseline3DCNN, UNet, MobileNetV2, SteerableCNN, SteerableFTCNN, CubeUNet, IcoUNet, GatedUNet
+from models import Baseline3DCNN, UNet, MobileNetV2, SteerableCNN, SteerableFTCNN, CubeUNet, IcoUNet, GatedUNet, FTUNet
 from pathlib import Path
 import numpy as np
 from copy import deepcopy
@@ -77,6 +77,8 @@ def get_model(tparams):
         model = CubeUNet(**{**kwargs, **tparams['cubereg']})
     elif tparams['model'] == 'icoreg':
         model = IcoUNet(**{**kwargs, **tparams['icoreg']})
+    elif tparams['model'] == 'ftunet':
+        model = FTUNet(**{**kwargs, **tparams['steerable']})
     elif tparams['model'] == 'scnn':
         model = SteerableCNN(**{**kwargs, **tparams['steerable']})
     elif tparams['model'] == 'sftcnn':
@@ -130,7 +132,7 @@ if __name__ == '__main__':
     parser.add_argument('--train.cnn.arch')
     parser.add_argument('--train.cubereg.arch')
     parser.add_argument('--train.icoreg.arch')
-    parser.add_argument('--train.steerable.type')
+    parser.add_argument('--train.steerable.repr_type')
 
     hparams = vars(parser.parse_args())
     hparams = parse_dict(hparams)

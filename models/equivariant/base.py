@@ -150,7 +150,7 @@ class FTNonLinearity(enn.EquivariantModule):
                  non_linearity: str = 'elu',
                  max_freq_out: int = None,
                  moorepenrose: bool = True,
-                 spherical: bool = False,
+                 repr_type: str = 'spherical',
                  **grid_kwargs):
         f"""
             Sample SO(3)'s irreps -> Apply ELU -> Fourier Transform
@@ -163,7 +163,9 @@ class FTNonLinearity(enn.EquivariantModule):
         """
         super().__init__()
         self.channels = channels
-        self.spherical = spherical
+        if repr_type not in ['spherical', 'so3']:
+            raise ValueError(f'repr_type must be one of [spherical, so3], given: {repr_type}')
+        self.repr_type = repr_type
         self.non_linearity = self.get_nonlin(non_linearity)
         max_freq_out = max_freq_out or max_freq_in
 
@@ -197,19 +199,19 @@ class FTNonLinearity(enn.EquivariantModule):
             raise ValueError(f'Unsupported non-linearity type: {nonlin_type}')
 
     def get_representation(self, max_freq):
-        if self.spherical:
+        if self.repr_type == 'spherical':
             return self.gspace.fibergroup.bl_quotient_representation(max_freq, (False, -1))
         else:
             return self.gspace.fibergroup.bl_regular_representation(max_freq)
 
     def get_grid(self, *grid_args, **grid_kwargs):
-        if self.spherical:
+        if self.repr_type == 'spherical':
             return self.gspace.fibergroup.sphere_grid(*grid_args, **grid_kwargs)
         else:
             return self.gspace.fibergroup.grid(*grid_args, **grid_kwargs)
         
     def get_kernel(self, max_freq):
-        if self.spherical:
+        if self.repr_type == 'spherical':
             return kernel_sphere(self.gspace, max_freq)
         else:
             return kernel_so3(max_freq)

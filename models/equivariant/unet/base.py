@@ -117,7 +117,6 @@ class EquivUNet(BaseEquiv):
         skip_cons = []
         for encoder in self.encoders:
             x = encoder(x)
-            print(x.shape)
             skip_cons.append(x)
 
         x = self.bottleneck(x)
@@ -131,7 +130,6 @@ class EquivUNet(BaseEquiv):
             skip.type = x.type
             x = self.cat([x, skip], dim=1)
             x = block['decoder'](x)
-            print(x.shape)
             if self.deep_supervision:
                 outputs.append(x)
 
