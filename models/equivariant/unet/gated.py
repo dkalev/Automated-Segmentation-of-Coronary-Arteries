@@ -31,23 +31,34 @@ class GatedUNet(EquivUNet):
 
         return {
             'encoders': [
-                {'in_type': self.input_type, 'mid_type': type32, 'out_type': type32, 'stride': 1},
-                {'in_type': type32, 'mid_type': type64, 'out_type': type64, 'stride': 2},
-                {'in_type': type64, 'mid_type': type128, 'out_type': type128, 'stride': 2},
-                {'in_type': type128, 'mid_type': type256, 'out_type': type256, 'stride': 2},
-                {'in_type': type256, 'mid_type': type320, 'out_type': type320, 'stride': 2},
+                {'in_type': self.input_type, 'mid_type': type32.no_gates(), 'out_type': type32, 'stride': 1},
+                {'in_type': type32.no_gates(), 'mid_type': type64.no_gates(), 'out_type': type64, 'stride': 2},
+                {'in_type': type64.no_gates(), 'mid_type': type128.no_gates(), 'out_type': type128, 'stride': 2},
+                {'in_type': type128.no_gates(), 'mid_type': type256.no_gates(), 'out_type': type256, 'stride': 2},
+                {'in_type': type256.no_gates(), 'mid_type': type320.no_gates(), 'out_type': type320, 'stride': 2},
             ],
-            'bottleneck': {'in_type': type320, 'out_type': type320},
+            'bottleneck': {'in_type': type320.no_gates(), 'out_type': type320},
             'decoders': [
-                {'in_type': type320, 'mid_type': type320, 'out_type': type320},
-                {'in_type': type320, 'mid_type': type256, 'out_type': type256},
-                {'in_type': type256, 'mid_type': type128, 'out_type': type128},
-                {'in_type': type128, 'mid_type': type64, 'out_type': type64},
-                {'in_type': type64, 'mid_type': type32, 'out_type': type32},
+                {'in_type': type320.no_gates(), 'mid_type': type320.no_gates(), 'out_type': type320},
+                {'in_type': type320.no_gates(), 'mid_type': type256.no_gates(), 'out_type': type256},
+                {'in_type': type256.no_gates(), 'mid_type': type128.no_gates(), 'out_type': type128},
+                {'in_type': type128.no_gates(), 'mid_type': type64.no_gates(), 'out_type': type64},
+                {'in_type': type64.no_gates(), 'mid_type': type32.no_gates(), 'out_type': type32},
             ],
         }
 
     @staticmethod
     def get_nonlin(ftype):
-        pass
+        if ftype.gated and ftype.gates:
+            labels = len(ftype.trivials) * ['trivial'] + (len(ftype.gated) + len(ftype.gates)) * ['gate'] 
+            labels_gate = len(ftype.gated)*['gated']+len(ftype.gates)*['gate']
+            return enn.MultipleModule(ftype,
+                labels=labels,
+                modules=[
+                    (enn.ELU(ftype.trivials, inplace=True), 'trivial'),
+                    (enn.GatedNonLinearity1(ftype.gated+ftype.gates, labels_gate), 'gate')
+                ]
+            )
+        else:
+            return enn.ELU(ftype, inplace=True)
 
