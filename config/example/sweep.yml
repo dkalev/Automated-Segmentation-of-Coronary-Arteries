@@ -1,19 +1,27 @@
 program: train.py
 method: bayes
 metric:
-    name: valid_loss
-    goal: minimize
+    name: valid/dice
+    goal: maximize
+early_terminate:
+    type: hyperband
+    min_iter: 5
 parameters:
-    dataset.oversample_coef:
-        values: [10, 100, 1000]
-    train.lr: 
-        min: 0.0001
+    train.n_epochs:
+        value: 15
+    train.model:
+        value: ftunet
+    train.lr:
+        min: 0.00001
         max: 0.1
     train.loss_type:
-        values: ['dice', 'bce', 'dicebce', 'dicebceohnm', 'gdice', 'gdicebce', 'gdicebceohnm']
-    train.n_epochs:
-        value: 10
+        values: [dice, dicebceohnm]
+    train.steerable.repr_type:
+        values: [trivial, spherical, so3]
+    train.ft.grid_kwargs.type:
+        values: [tetra, cube, ico]
 command:
   - ${env}
   - ${interpreter}
   - ${program}
+  - ${args}

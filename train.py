@@ -78,7 +78,7 @@ def get_model(tparams):
     elif tparams['model'] == 'icoreg':
         model = IcoUNet(**{**kwargs, **tparams['icoreg']})
     elif tparams['model'] == 'ftunet':
-        model = FTUNet(**{**kwargs, **tparams['steerable']})
+        model = FTUNet(**{**kwargs, **tparams['steerable'], **tparams['ft']})
     elif tparams['model'] == 'scnn':
         model = SteerableCNN(**{**kwargs, **tparams['steerable']})
     elif tparams['model'] == 'sftcnn':
@@ -133,6 +133,7 @@ if __name__ == '__main__':
     parser.add_argument('--train.cubereg.arch')
     parser.add_argument('--train.icoreg.arch')
     parser.add_argument('--train.steerable.repr_type')
+    parser.add_argument('--train.ft.grid_kwargs.type')
 
     hparams = vars(parser.parse_args())
     hparams = parse_dict(hparams)

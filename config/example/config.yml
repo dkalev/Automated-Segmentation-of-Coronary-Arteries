@@ -7,20 +7,22 @@ dataset:
     resample_vols: false
     oversample: true
     crop_empty: false
-    weight_update_step: 0.5
+    weight_update_step: 0
     perc_per_epoch_train: 0.25
-    perc_per_epoch_val: 0.25
+    perc_per_epoch_val: 1
     sample_every_epoch: true
     data_dir: dataset/processed
+    # sourcepath: dataset/3D_MNIST_DATA.zip 
     sourcepath: dataset/ASOCA2020Data.zip
 train:
-    model: eunet # one of [cnn, unet, cubereg, icoreg, scnn, mobilenet, eunet]
-    gpus: 1
+    model: cubereg # one of [cnn, unet, cubereg, icoreg, scnn, mobilenet, eunet]
+    gpus: 4
     n_epochs: 100
     batch_size: 1
     lr: 0.001
     auto_lr_find: false
-    loss_type: dicebceohnm # one of [dice, bce, dicebce, dicebceohnm]
+    loss_type: dice # one of [dice, bce, dicebce, dicebceohnm]
+    ohnm_ratio: 100
     fully_conv: true
     fast_val: false
     skip_empty_patches: false
@@ -31,6 +33,13 @@ train:
     unet:
         deep_supervision: false
     cnn:
-        arch: default # one of [default, strided, patch64]
+        arch: strided # one of [default, strided, patch64, fully_conv]
+    cubereg:
+        arch: mixed # one of [mixed, vert, regular]
+    icoreg:
+        arch: mixed # one of [mixed, vert, regular]
     steerable:
-        type: 'so3' # one of [trivial, spherical, so4]
+        repr_type: spherical # one of [trivial, spherical, so3]
+    ft:
+        grid_kwargs:
+            type: cube # one of [tetra, cube, ico, thompson, random]
