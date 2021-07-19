@@ -124,11 +124,11 @@ class Base(BasePL):
         elif name == 'dicebce':
             return DiceBCELoss()
         elif name == 'gdicebce':
-            return DiceBCELoss(dice_kwargs={'generalized':True})
+            return DiceBCELoss(generalized=True)
         elif name == 'dicebceohnm':
             return DiceBCE_OHNMLoss()
         elif name == 'gdicebceohnm':
-            return DiceBCE_OHNMLoss(dice_kwargs={'generalized':True})
+            return DiceBCE_OHNMLoss(generalized=True)
         else:
             raise ValueError(f'Unknown loss type: {name}')
 

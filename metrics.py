@@ -1,9 +1,21 @@
+from typing import Iterable, Union
 import numpy as np
 import torch
 from scipy.spatial import cKDTree
-from torchmetrics.functional import auroc
 
-def dice_score(pred, targ, eps=1e-10):
+
+def dice_score(pred:torch.Tensor, targ:torch.Tensor, eps:float=1e-10) -> torch.Tensor:
+    """ Computes the average dice score within an batch of binary predictions and targets
+
+    Args:
+        pred (torch.Tensor): tensor of shape [bs,1,...spatial_dims] containing the binary predictions
+        targ (torch.Tensor): tensor of shape [bs,1,...spatial_dims] containing the binary targets
+        eps (float, optional): smoothing factor added both to numerator and denominator in final 
+            equation to ensure stable results. Defaults to 1e-10.
+
+    Returns:
+        torch.Tensor: The average score across the samples in the batch
+    """
     pred, targ = pred.clone(), targ.clone()
     targ = targ.float()
     # if a batch patches [bs,1,w,h,d] sum over spatial dimensions and average over batch
@@ -13,11 +25,27 @@ def dice_score(pred, targ, eps=1e-10):
     union = torch.sum(pred, dim=sum_dims) + torch.sum(targ, dim=sum_dims)
     return torch.mean((2. * intersection + eps) / ( union + eps ))
 
-def hausdorff_95(preds, targs, spacing):
-    # Code from https://github.com/Ramtingh/ASOCA_MICCAI2020_Evaluation/blob/master/evaluation.py
+def hausdorff_95(preds: Union[torch.Tensor, np.ndarray],
+                 targs: Union[torch.Tensor, np.ndarray],
+                 spacing: Union[Iterable, np.ndarray]) -> float:
+    """ Code from https://github.com/Ramtingh/ASOCA_MICCAI2020_Evaluation/blob/master/evaluation.py
+        Computes the Hausdorff 95 percentile distance between two 3D volumes (in this case binary
+        predictions and targets).
+
+    Args:
+        preds (Union[torch.Tensor, np.ndarray]): binary predictions
+        targs (Union[torch.Tensor, np.ndarray]): binary targets
+        spacing (Union[Iterable, np.ndarray]): the spacing between the centers of individual voxels
+            along each of the axis
+
+    Returns:
+        float: the Hausdorff 95 percentile distance between predictions and targets
+    """
+
     if isinstance(preds, torch.Tensor): preds = preds.numpy()
-    if np.issubdtype(preds.dtype, np.integer): preds = (preds > 0.5)
     if not isinstance(spacing, np.ndarray): spacing = np.array(spacing)
+
+    if np.issubdtype(preds.dtype, np.integer): preds = (preds > 0.5)
     preds = preds.astype(np.uint8)
     targs = targs.astype(np.uint8)
 
@@ -31,10 +59,3 @@ def hausdorff_95(preds, targs, spacing):
     tp_dist,_ = targs_kdtree.query(preds_coords)
 
     return max(np.quantile(pt_dist,0.95), np.quantile(tp_dist,0.95))
-
-def roc_auc(preds, targs):
-    targs_numpy = targs.cpu().flatten().numpy().astype(int)
-    if targs_numpy.sum() > 0:
-        preds_numpy = preds.cpu().flatten()
-        return auroc(targs_numpy, preds_numpy)
-    return 0.5
