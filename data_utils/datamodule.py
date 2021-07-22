@@ -7,8 +7,10 @@ from torch.utils.data import DataLoader
 from pytorch_lightning import LightningDataModule
 import torch.distributed as dist
 
-from .dataset import AsocaDataset, AsocaVolumeDataset
-from .dataset_builder import DatasetBuilder
+from typing import Union, List, Dict
+
+from .dataset import AsocaSegmentationDataset, AsocaClassificationDataset
+from .dataset_builder import DatasetBuilder, ClassificationDatasetBuilder
 from .sampler import ASOCASampler
 
 logging.basicConfig(
@@ -86,7 +88,7 @@ class AsocaDataModule(DatasetBuilder, LightningDataModule):
         # we end up with partial predictions for e.g. 4 volumes instead of
         # full predictions (all patches) for the 2 required volumes
 
-        dataset = AsocaDataset(ds_path=self.data_dir, split=split)
+        dataset = AsocaSegmentationDataset(ds_path=self.data_dir, split=split)
 
         if not self.sample_every_epoch and self.trainer.current_epoch > 0:
             dataset.file_ids = sampler.file_ids
@@ -106,7 +108,7 @@ class AsocaDataModule(DatasetBuilder, LightningDataModule):
         if num_workers is None: num_workers = 3 if dist.is_initialized() else 4
         if batch_size is None: batch_size = self.batch_size
         if self.trainer.current_epoch == 0 or not dist.is_initialized():
-            train_ds = AsocaDataset(ds_path=self.data_dir, split='train')
+            train_ds = AsocaSegmentationDataset(ds_path=self.data_dir, split='train')
             sampler = ASOCASampler(train_ds.vol_meta,
                                     oversample=self.oversample,
                                     weight_update_step=self.weight_update_step,
@@ -122,7 +124,7 @@ class AsocaDataModule(DatasetBuilder, LightningDataModule):
         if num_workers is None: num_workers = 3 if dist.is_initialized() else 4
         if batch_size is None: batch_size = self.batch_size
         if self.trainer.current_epoch == 0 or not dist.is_initialized():
-            valid_ds = AsocaDataset(ds_path=self.data_dir, split='valid')
+            valid_ds = AsocaSegmentationDataset(ds_path=self.data_dir, split='valid')
             sampler = ASOCASampler(valid_ds.vol_meta, perc_per_epoch=self.perc_per_epoch_val)
         elif self.trainer.current_epoch > 0 and dist.is_initialized():
             sampler = self.trainer.val_dataloaders[0].sampler.sampler
@@ -137,3 +139,38 @@ class AsocaDataModule(DatasetBuilder, LightningDataModule):
         ds = AsocaVolumeDataset(ds_path=self.data_dir, vol_id=vol_id)
         meta = ds.get_vol_meta()
         return DataLoader(ds, batch_size=batch_size, num_workers=12, pin_memory=True), meta
+
+
+class AsocaClassificationDataModule(ClassificationDatasetBuilder, LightningDataModule):
+    def __init__(self, *args,
+                batch_size=1,
+                patch_size=68,
+                data_dir='dataset/classification',
+                sourcepath='dataset/ASOCA2020Data.zip',
+                perc_per_epoch_train=1,
+                perc_per_epoch_val=1, **kwargs):
+        super().__init__(logger, *args, patch_size=patch_size, data_dir=data_dir, sourcepath=sourcepath, **kwargs)
+        self.batch_size = batch_size
+        self.patch_size = patch_size
+        self.data_dir = data_dir
+        self.sourcepath = sourcepath
+        self.perc_per_epoch_train = perc_per_epoch_train
+        self.perc_per_epoch_val = perc_per_epoch_val
+    
+    def prepare_data(self):
+        if not Path(self.data_dir).is_dir() or not Path(self.data_dir, 'dataset.json').is_file():
+            self.build()
+
+    def train_dataloader(self, batch_size:int=None, num_workers:int=None) -> Union[DataLoader, List[DataLoader], Dict[str, DataLoader]]:
+        if num_workers is None: num_workers = 3 if dist.is_initialized() else 4
+        if batch_size is None: batch_size = self.batch_size
+        train_ds = AsocaClassificationDataset(ds_path=self.data_dir, split='train')
+        sampler = ASOCASampler(train_ds.vol_meta, shuffle=True, perc_per_epoch=self.perc_per_epoch_train)
+        return DataLoader(train_ds, sampler=sampler, batch_size=batch_size, num_workers=num_workers, pin_memory=True)
+
+    def val_dataloader(self, batch_size:int=None, num_workers:int=None) -> Union[DataLoader, List[DataLoader], Dict[str, DataLoader]]:
+        if num_workers is None: num_workers = 3 if dist.is_initialized() else 4
+        if batch_size is None: batch_size = self.batch_size
+        valid_ds = AsocaClassificationDataset(ds_path=self.data_dir, split='valid')
+        sampler = ASOCASampler(valid_ds.vol_meta, perc_per_epoch=self.perc_per_epoch_val)
+        return DataLoader(valid_ds, shuffle=False, batch_size=batch_size, num_workers=num_workers, pin_memory=True)

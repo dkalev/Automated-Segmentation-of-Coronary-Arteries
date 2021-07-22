@@ -11,9 +11,10 @@ from collections import OrderedDict
 from multiprocessing import get_context
 from concurrent.futures import ProcessPoolExecutor
 from .helpers import get_patch_padding, vol2patches
+from .helpers_classification import get_vol_paths, normalize_vols, get_patch_coords
 
 
-class DatasetBuilder():
+class DatasetBuilder:
     def __init__(self, logger, *args,
                 num_workers=6,
                 valid_idxs=None,
@@ -248,3 +249,82 @@ class DatasetBuilder():
         with open(Path(self.data_dir, 'dataset.json'), 'w') as f:
             json.dump(meta, f, indent=4)
 
+
+class ClassificationDatasetBuilder:
+    def __init__(self, logger, *args,
+                n_patches=100000,
+                patch_size=68,
+                data_dir='dataset/classification',
+                sourcepath='dataset/ASOCA2020Data.zip',
+                valid_split=[1, 9, 13, 19, 22, 28, 38, 39],
+                **kwargs):
+        self.n_patches = n_patches
+        self.patch_size = patch_size
+        self.data_dir = data_dir
+        self.sourcepath = sourcepath
+        self.valid_split = valid_split
+        self.logger = logger
+
+        super().__init__(*args, **kwargs)
+
+    @property
+    def stats(self):
+        return {
+            'mean': 347.14618,
+            'std': 120.35282,
+            'percentile_00_5': 95.0,
+            'percentile_99_5': 698.0,
+        }
+
+    def build(self):
+        subdirs = ['Train', 'Train_Masks', 'Train_heart_mask', 'Test']
+        folders_exist = [ Path(self.data_dir, subdir).is_dir() for subdir in subdirs ]
+        if not all(folders_exist):
+            self.logger.info(f'Extracting data from {self.sourcepath}')
+            for subdir in subdirs:
+                if Path(self.data_dir, subdir).is_dir():
+                    shutil.rmtree(Path(self.data_dir, subdir))
+
+            with zipfile.ZipFile(self.sourcepath, 'r') as zip_ref:
+                zip_ref.extractall(self.data_dir)
+            
+
+        self.logger.info('Building dataset')
+
+        vol_paths = get_vol_paths(self.data_dir)
+
+        self.logger.info('Preprocessing')
+        normalize_vols(vol_paths, self.data_dir, self.stats)
+
+        vol_paths = get_vol_paths(self.data_dir, vol_subdir='')
+
+        self.logger.info('Sample patches')
+        patch_idxs = get_patch_coords(vol_paths, self.patch_size, n_patches=self.n_patches)
+
+        for split in ['train', 'valid']:
+            os.makedirs(Path(self.data_dir, split, 'vols'), exist_ok=True)
+        for vol_id, vol_path, targ_path, _ in vol_paths:
+            split = 'valid' if vol_id in self.valid_split else 'train'
+            os.rename(Path(self.data_dir, f'{vol_id}.npy'), Path(self.data_dir, split, 'vols', f'{vol_id}.npy'))
+
+        self.logger.info('Save meta json file') 
+        dataset = {
+            'stats' : self.stats,
+            'patch_size': self.patch_size,
+            'patch_stride': 1,
+            'N': self.n_patches,
+            'vol_meta': {
+                k: {
+                'split': 'valid' if int(k) in self.valid_split else 'train',
+                'n_patches': len(v),
+                'patches': v.tolist()
+            }
+            for k,v in patch_idxs.items()}
+        }
+
+        with open(Path(self.data_dir, 'dataset.json'), 'w') as f:
+            json.dump(dataset, f)
+
+        self.logger.info('Clean up')
+        for subdir in subdirs:
+            shutil.rmtree(Path(self.data_dir, subdir))

@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 import numpy as np
 import torch
+from typing import List, Tuple, Union
 from torch.utils.data import Dataset
 
 
@@ -11,6 +12,7 @@ class AsocaDataset(Dataset):
         self.ds_path = Path(ds_path, split)
         with open(Path(ds_path, 'dataset.json'), 'r') as f:
             meta = json.load(f)
+        self.patch_size = np.array(meta['patch_size'])
         self.vol_meta = { int(k): v for k, v in meta['vol_meta'].items() if v['split'] == split }
 
     @property
@@ -42,7 +44,7 @@ class AsocaDataset(Dataset):
 
     def split_index(self, index):
         if isinstance(index, int) or isinstance(index, np.int64):
-            if index < 0: index = self.len + index
+            if index < 0: index = self.total_patches + index
             file_id, idx = index // self.max_patches, index % self.max_patches
         elif isinstance(index, slice):
             file_id = index.start // self.max_patches
@@ -51,6 +53,8 @@ class AsocaDataset(Dataset):
             raise ValueError(f'Unsupported index type: {type(index)}, value: {index}')
         return file_id, idx
 
+
+class AsocaSegmentationDataset(AsocaDataset):
     def __getitem__(self, index):
         file_id, patch_idx = self.split_index(index)
         x = np.load(Path(self.ds_path, 'vols', f'{file_id}.npy'), mmap_mode='r')
@@ -61,8 +65,36 @@ class AsocaDataset(Dataset):
         if len(x.shape) == 3: x, y = x.unsqueeze(0), y.unsqueeze(0)
         return x, y, (file_id, patch_idx)
 
+class AsocaClassificationDataset(AsocaDataset):
+    def get_patch_bbox(self, vol_id:int,  patch_idx:int) -> Tuple[slice, slice, slice]:
+        if isinstance(patch_idx, slice):
+            raise NotImplementedError('Slices not supported yet')
+        data = self.vol_meta[vol_id]['patches'][patch_idx]
+        center_coords = data[:-1]
+        bbox = np.array([
+            center_coords - np.ceil(self.patch_size / 2),
+            center_coords + np.ceil(self.patch_size / 2)]
+        )
+        bbox = bbox.T.astype(int)
+        x, y, z = bbox
+        return slice(x[0],x[1]), slice(y[0],y[1]), slice(z[0],z[1])
+    
+    def get_label(self, vol_id:int, patch_idx:int) -> int:
+        return self.vol_meta[vol_id]['patches'][patch_idx][-1]
+        
+    def __getitem__(self, index):
+        file_id, patch_idx = self.split_index(index)
+        x = np.load(Path(self.ds_path, 'vols', f'{file_id}.npy'), mmap_mode='r')
+        bbox = self.get_patch_bbox(file_id, patch_idx)
+        x = np.array(x[bbox]).astype(np.float32)
+        y = self.get_label(file_id, patch_idx)
+        x, y = torch.from_numpy(x), torch.LongTensor([y])
 
-class AsocaVolumeDataset(AsocaDataset):
+        if len(x.shape) == 3: x, y = x.unsqueeze(0), y.unsqueeze(0)
+        return x, y, (file_id, patch_idx)
+
+
+class AsocaVolumeDataset(AsocaSegmentationDataset):
     def __init__(self, *args, vol_id, **kwargs):
         split = self.infer_split(kwargs['ds_path'], vol_id)
         super().__init__(*args, split=split, **kwargs)

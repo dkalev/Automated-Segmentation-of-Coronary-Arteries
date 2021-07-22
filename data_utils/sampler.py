@@ -17,8 +17,9 @@ class ASOCASampler(Sampler):
         self.w_step = weight_update_step
 
         self.vol_meta = deepcopy(vol_meta)
-        for meta in self.vol_meta.values():
-            meta['weights'] = self.get_sample_weights(meta['foreground_ratio'])
+        if self.oversample:
+            for meta in self.vol_meta.values():
+                meta['weights'] = self.get_sample_weights(meta['foreground_ratio'])
 
     @property
     def max_patches(self):
