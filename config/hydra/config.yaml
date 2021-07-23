@@ -1,0 +1,4 @@
+defaults:
+    - dataset: segmentation
+    - train: segmentation
+    - model: classification/cnn

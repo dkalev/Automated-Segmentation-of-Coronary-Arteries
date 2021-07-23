@@ -1,0 +1,3 @@
+class_name: models.segmentation.equivariant.unet.ft_unet.FTUNet
+params:
+  kernel_size: 3

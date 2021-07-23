@@ -1,0 +1,3 @@
+class_name: models.segmentation.equivariant.unet.ico.IcoUNet
+params:
+  kernel_size: 3

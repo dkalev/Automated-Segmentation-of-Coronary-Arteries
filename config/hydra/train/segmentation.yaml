@@ -1,0 +1,9 @@
+gpus: 4
+n_epochs: 100
+batch_size: 1
+lr: 0.001
+loss_type: dice # one of [dice, bce, dicebce, dicebceohnm]
+ohnm_ratio: 100
+fast_val: false
+skip_empty_patches: false
+optim_type: adam # one of [sgd, adam]

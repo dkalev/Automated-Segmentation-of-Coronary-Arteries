@@ -1,0 +1,3 @@
+class_name: models.segmentation.cnn.Baseline3DSegmentation
+params:
+  kernel_size: 5

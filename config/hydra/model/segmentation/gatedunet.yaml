@@ -1,0 +1,3 @@
+class_name: models.segmentation.equivariant.unet.gated.GatedUNet
+params:
+  kernel_size: 3
