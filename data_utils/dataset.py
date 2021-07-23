@@ -88,10 +88,10 @@ class AsocaClassificationDataset(AsocaDataset):
         bbox = self.get_patch_bbox(file_id, patch_idx)
         x = np.array(x[bbox]).astype(np.float32)
         y = self.get_label(file_id, patch_idx)
-        x, y = torch.from_numpy(x), torch.LongTensor([y])
+        x, y = torch.from_numpy(x), torch.ByteTensor([y])
 
-        if len(x.shape) == 3: x, y = x.unsqueeze(0), y.unsqueeze(0)
-        return x, y, (file_id, patch_idx)
+        if len(x.shape) == 3: x = x.unsqueeze(0)
+        return x, y
 
 
 class AsocaVolumeDataset(AsocaSegmentationDataset):
@@ -121,4 +121,3 @@ class AsocaVolumeDataset(AsocaSegmentationDataset):
     def __getitem__(self, index):
         x, _, _ =  super().__getitem__(index)
         return x
-

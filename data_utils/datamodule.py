@@ -147,6 +147,7 @@ class AsocaClassificationDataModule(ClassificationDatasetBuilder, LightningDataM
                 patch_size=68,
                 data_dir='dataset/classification',
                 sourcepath='dataset/ASOCA2020Data.zip',
+                sample_every_epoch=True,
                 perc_per_epoch_train=1,
                 perc_per_epoch_val=1, **kwargs):
         super().__init__(logger, *args, patch_size=patch_size, data_dir=data_dir, sourcepath=sourcepath, **kwargs)
@@ -154,6 +155,7 @@ class AsocaClassificationDataModule(ClassificationDatasetBuilder, LightningDataM
         self.patch_size = patch_size
         self.data_dir = data_dir
         self.sourcepath = sourcepath
+        self.sample_every_epoch = sample_every_epoch
         self.perc_per_epoch_train = perc_per_epoch_train
         self.perc_per_epoch_val = perc_per_epoch_val
     
@@ -161,16 +163,50 @@ class AsocaClassificationDataModule(ClassificationDatasetBuilder, LightningDataM
         if not Path(self.data_dir).is_dir() or not Path(self.data_dir, 'dataset.json').is_file():
             self.build()
 
+    def sync_samplers(self, sampler, split):
+        # ensure that each process trains and validates on the same subset of files in ddp on each gpu
+        # otherwise because a sampler is initialized in each process 
+        # we end up with partial predictions for e.g. 4 volumes instead of
+        # full predictions (all patches) for the 2 required volumes
+
+        dataset = AsocaClassificationDataset(ds_path=self.data_dir, split=split)
+
+        if not self.sample_every_epoch and self.trainer.current_epoch > 0:
+            dataset.file_ids = sampler.file_ids
+            return dataset, sampler
+
+        package = [sampler.sample_ids()]
+        dist.barrier()
+        # broadcast sends the package object from the specified rank (0) and replaces it on all other ranks
+        dist.broadcast_object_list(package, 0)
+
+        sampler.file_ids = package[0]
+        dataset.file_ids = package[0]
+
+        return dataset, sampler
+
     def train_dataloader(self, batch_size:int=None, num_workers:int=None) -> Union[DataLoader, List[DataLoader], Dict[str, DataLoader]]:
         if num_workers is None: num_workers = 3 if dist.is_initialized() else 4
         if batch_size is None: batch_size = self.batch_size
-        train_ds = AsocaClassificationDataset(ds_path=self.data_dir, split='train')
-        sampler = ASOCASampler(train_ds.vol_meta, shuffle=True, perc_per_epoch=self.perc_per_epoch_train)
+        if self.trainer.current_epoch == 0 or not dist.is_initialized():
+            train_ds = AsocaClassificationDataset(ds_path=self.data_dir, split='train')
+            sampler = ASOCASampler(train_ds.vol_meta, shuffle=True, perc_per_epoch=self.perc_per_epoch_train)
+        elif self.trainer.current_epoch > 0 and dist.is_initialized():
+            sampler = self.trainer.train_dataloader.sampler.sampler
+        if dist.is_initialized():
+            train_ds, sampler = self.sync_samplers(sampler, 'train')
+            sampler = DistributedSamplerWrapper(sampler=sampler, num_replicas=dist.get_world_size(), rank=dist.get_rank())
         return DataLoader(train_ds, sampler=sampler, batch_size=batch_size, num_workers=num_workers, pin_memory=True)
 
     def val_dataloader(self, batch_size:int=None, num_workers:int=None) -> Union[DataLoader, List[DataLoader], Dict[str, DataLoader]]:
         if num_workers is None: num_workers = 3 if dist.is_initialized() else 4
         if batch_size is None: batch_size = self.batch_size
-        valid_ds = AsocaClassificationDataset(ds_path=self.data_dir, split='valid')
-        sampler = ASOCASampler(valid_ds.vol_meta, perc_per_epoch=self.perc_per_epoch_val)
-        return DataLoader(valid_ds, shuffle=False, batch_size=batch_size, num_workers=num_workers, pin_memory=True)
+        if self.trainer.current_epoch == 0 or not dist.is_initialized():
+            valid_ds = AsocaClassificationDataset(ds_path=self.data_dir, split='valid')
+            sampler = ASOCASampler(valid_ds.vol_meta, perc_per_epoch=self.perc_per_epoch_val)
+        elif self.trainer.current_epoch > 0 and dist.is_initialized():
+            sampler = self.trainer.val_dataloaders[0].sampler.sampler
+        if dist.is_initialized():
+            valid_ds, sampler = self.sync_samplers(sampler, 'valid')
+            sampler = DistributedSamplerWrapper(sampler=sampler, num_replicas=dist.get_world_size(), rank=dist.get_rank())
+        return DataLoader(valid_ds, sampler=sampler, batch_size=batch_size, num_workers=num_workers, pin_memory=True)
