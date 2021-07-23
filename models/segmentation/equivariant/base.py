@@ -3,7 +3,7 @@ import e3cnn.gspaces as gspaces
 import torch
 from e3cnn.group import directsum
 from abc import abstractmethod
-from ..base import Base
+from ..base import BaseSegmentation
 
 
 class GatedFieldType(enn.FieldType):
@@ -124,7 +124,7 @@ class GatedFieldType(enn.FieldType):
         return GatedFieldType(self.gspace, self.trivials + other.trivials, gated, gates)
 
 
-class BaseEquiv(Base):
+class BaseEquiv(BaseSegmentation):
     def __init__(self, in_channels=1, kernel_size=3, padding=0, **kwargs):
         super().__init__(**kwargs)
 

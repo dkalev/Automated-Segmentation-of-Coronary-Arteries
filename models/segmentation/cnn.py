@@ -1,9 +1,9 @@
 import torch.nn as nn
-from .base import Base
+from .base import BaseSegmentation
 import numpy as np
 
 
-class Baseline3DCNN(Base):
+class Baseline3DSegmentation(BaseSegmentation):
     def __init__(self, *args, kernel_size=5, arch='default', **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -75,4 +75,3 @@ class Baseline3DCNN(Base):
 
     def forward(self, x):
         return self.model(x)
-

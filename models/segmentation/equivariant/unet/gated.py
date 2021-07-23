@@ -1,7 +1,7 @@
 from .base import EquivUNet
+from ..base import GatedFieldType
 import e3cnn.nn as enn
 import e3cnn.gspaces as gspaces
-from ..base import GatedFieldType
 
 
 class GatedUNet(EquivUNet):

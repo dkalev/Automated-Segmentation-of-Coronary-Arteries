@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 import numpy as np
 import torch
-from typing import List, Tuple, Union
+from typing import Tuple
 from torch.utils.data import Dataset
 
 

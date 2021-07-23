@@ -2,10 +2,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
-from .base import Base
+from .base import BaseSegmentation
 from collections import OrderedDict
 
-class UNet(Base):
+class UNet(BaseSegmentation):
     def __init__(self, *args, kernel_size=3, n_features=32, deep_supervision=False, **kwargs):
         super().__init__(*args, **kwargs)
         self.kernel_size = kernel_size
@@ -72,16 +72,16 @@ class UNet(Base):
         }))
 
     def get_upsampler(self, in_channels, out_channels, kernel_size=2, stride=2):
-        return nn.ConvTranspose3d(in_channels, out_channels, kernel_size=kernel_size, stride=stride, bias=False)
-#        return nn.Sequential(
-#            nn.Upsample(scale_factor=2),
-#            nn.Conv3d(in_channels, out_channels, kernel_size=1)
-#        )
+        # return nn.ConvTranspose3d(in_channels, out_channels, kernel_size=kernel_size, stride=stride, bias=False)
+       return nn.Sequential(
+           nn.Upsample(scale_factor=2),
+           nn.Conv3d(in_channels, out_channels, kernel_size=1)
+       )
 
     def get_bottleneck(self, channels):
         return nn.Sequential(OrderedDict({
-#            'conv1': nn.Conv3d(channels, channels, kernel_size=self.kernel_size, stride=2, padding=self.padding),
-            'conv1': nn.Conv3d(channels, channels, kernel_size=self.kernel_size, stride=(1,2,2), padding=self.padding),
+            'conv1': nn.Conv3d(channels, channels, kernel_size=self.kernel_size, stride=2, padding=self.padding),
+            # 'conv1': nn.Conv3d(channels, channels, kernel_size=self.kernel_size, stride=(1,2,2), padding=self.padding),
             'instnorm1': nn.InstanceNorm3d(channels, affine=True),
             'lrelu1': nn.LeakyReLU(inplace=True),
             'conv2': nn.Conv3d(channels, channels, kernel_size=self.kernel_size, padding=self.padding),

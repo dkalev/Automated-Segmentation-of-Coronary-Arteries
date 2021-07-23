@@ -6,7 +6,7 @@ import torch.nn as nn
 import numpy as np
 from typing import Tuple
 from .base import BaseEquiv
-from .ft_nonlinearity import FTNonLinearity, kernel_so3, kernel_sphere
+from .ft_nonlinearity import FTNonLinearity
 
 
 class FTGPool(enn.EquivariantModule):
