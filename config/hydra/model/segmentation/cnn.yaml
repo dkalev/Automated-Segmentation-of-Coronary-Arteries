@@ -1,3 +1,4 @@
 class_name: models.segmentation.cnn.Baseline3DSegmentation
 params:
   kernel_size: 5
+  arch: default # one of [default, strided, patch64, fully_conv]

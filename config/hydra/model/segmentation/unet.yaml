@@ -1,3 +1,4 @@
 class_name: models.segmentation.unet.UNet
 params:
   kernel_size: 3
+  deep_supervision: false

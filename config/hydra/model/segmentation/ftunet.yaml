@@ -1,3 +1,8 @@
 class_name: models.segmentation.equivariant.unet.ft_unet.FTUNet
 params:
   kernel_size: 3
+  deep_supervision: false
+  repr_type: spherical # one of [trivial, spherical, so3]
+  grid_kwargs:
+    type: cube # one of [tetra, cube, ico, thompson, random]
+  initialize: true

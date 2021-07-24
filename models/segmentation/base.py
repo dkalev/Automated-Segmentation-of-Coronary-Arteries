@@ -40,9 +40,10 @@ class BaseSegmentation(Base):
                         optim_type='adam',
                         debug=False,
                         fast_val=False,
+                        ohnm_ratio=3,
                         **kwargs):
         super().__init__(*args, **kwargs)
-        self.crit = self.get_loss_func(loss_type)
+        self.crit = self.get_loss_func(loss_type, ohnm_ratio=ohnm_ratio)
         self.lr = lr
         self.skip_empty_patches = skip_empty_patches
         self.mask_heart = mask_heart
@@ -68,7 +69,7 @@ class BaseSegmentation(Base):
     # def crop(self): pass
 
     @staticmethod
-    def get_loss_func(name):
+    def get_loss_func(name, ohnm_ratio=None):
         if name == 'bce':
             return BCEWrappedLoss()
         elif name == 'dice':
@@ -80,9 +81,9 @@ class BaseSegmentation(Base):
         elif name == 'gdicebce':
             return DiceBCELoss(generalized=True)
         elif name == 'dicebceohnm':
-            return DiceBCE_OHNMLoss()
+            return DiceBCE_OHNMLoss(ohnm_ratio=ohnm_ratio)
         elif name == 'gdicebceohnm':
-            return DiceBCE_OHNMLoss(generalized=True)
+            return DiceBCE_OHNMLoss(generalized=True, ohnm_ratio=ohnm_ratio)
         else:
             raise ValueError(f'Unknown loss type: {name}')
 

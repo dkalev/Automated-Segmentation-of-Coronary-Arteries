@@ -1,3 +1,6 @@
 class_name: models.segmentation.equivariant.unet.gated.GatedUNet
 params:
   kernel_size: 3
+  deep_supervision: false
+  repr_type: spherical # one of [trivial, spherical, so3]
+  initialize: true

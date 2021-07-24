@@ -1,5 +1,8 @@
-gpus: 4
-n_epochs: 100
-batch_size: 1
-lr: 0.001
-optim_type: adam # one of [sgd, adam]
+dataset:
+  batch_size: 1
+trainer:
+  gpus: 4
+  max_epochs: 100
+model:
+  lr: 0.001
+  optim_type: adam # one of [sgd, adam]

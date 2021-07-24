@@ -1,3 +1,4 @@
 class_name: models.classification.equivariant.icoreg.IcoCNN
 params:
   kernel_size: 5
+  initialize: true

@@ -1,3 +1,6 @@
 class_name: models.segmentation.equivariant.unet.cube.CubeUNet
 params:
   kernel_size: 3
+  deep_supervision: false
+  arch: regular # one of [regular, vert, mixed]
+  initialize: true

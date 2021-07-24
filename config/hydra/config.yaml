@@ -1,4 +1,11 @@
+debug: false
 defaults:
     - dataset: segmentation
     - train: segmentation
     - model: classification/cnn
+    - override hydra/hydra_logging: none
+    - override hydra/job_logging: none
+hydra:
+    run:
+        dir: .
+    output_subdir: null
