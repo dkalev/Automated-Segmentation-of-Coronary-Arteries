@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from models.segmentation.base import BaseSegmentation
 from typing import Tuple
 import pytorch_lightning as plt
+import torch.distributed as dist
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.plugins import DDPPlugin
@@ -105,18 +106,26 @@ def get_class(cls):
         m = getattr(m, comp)            
     return m
 
+def print_config(cfg: DictConfig):
+    if not dist.is_initialized() or dist.get_rank() == 0:
+        print(OmegaConf.to_yaml(cfg))
+
+def use_multigpu(cfg: DictConfig) -> bool:
+    gpus = cfg.train.trainer.gpus
+    return (isinstance(gpus, int) and gpus > 1) or (isinstance(gpus, list) and len(gpus) > 1)
+
 @hydra.main(config_path='config/hydra', config_name='config')
 def train(cfg: DictConfig):
-    print(OmegaConf.to_yaml(cfg))
+    if 'equivariant' in cfg.model.class_name and cfg.debug == True:
+        cfg.model.params.initialize = False
+
+    print_config(cfg)
+
     dm_params = { **cfg.train.dataset, **cfg.dataset.params }
     dm: plt.LightningDataModule = get_class(cfg.dataset.class_name)(**dm_params)
 
     model_params = { 'debug': cfg.debug, **cfg.train.model, **cfg.model.params }
     model: plt.LightningModule = get_class(cfg.model.class_name)(**model_params)
-
-    gpus = cfg.train.trainer.gpus
-    multigpu = (isinstance(gpus, int) and gpus > 1) \
-	or (isinstance(gpus, list) and len(gpus) > 1)
 
     dm.prepare_data()
 
@@ -125,24 +134,27 @@ def train(cfg: DictConfig):
             model.ds_meta = json.load(f)
 
     logger = WandbLogger() if not cfg.debug else None
-
     trainer_params = {
-        'accelerator': 'ddp' if multigpu else None,
+        'accelerator': 'ddp' if use_multigpu(cfg) else None,
         # disable logging in debug mode
         'checkpoint_callback': True if not cfg.debug else False,
         'logger': logger,
         'gradient_clip_val': 12,
         'callbacks': None if cfg.debug else [ ModelCheckpoint(monitor='valid/loss', mode='min') ],
-        'plugins': DDPPlugin(find_unused_parameters=False) if multigpu else None,
+        'plugins': DDPPlugin(find_unused_parameters=False) if use_multigpu(cfg) else None,
         'replace_sampler_ddp': False,
         'num_sanity_val_steps': 0,
-        'reload_dataloaders_every_epoch': True if multigpu else False,
+        'reload_dataloaders_every_epoch': True if use_multigpu(cfg) else False,
         **cfg.train.trainer
     }
     trainer = plt.Trainer( **trainer_params)
 
     if logger:
-        logger.log_hyperparams(OmegaConf.to_object(cfg))
+        params = OmegaConf.to_object(cfg)
+        params['dataset'] = { 'datamodule': params['dataset']['class_name'], **params['dataset']['params'] }
+        params['train'] = { k:v for subdict in params['train'].values() for k,v in subdict.items() }
+        params['model'] = { 'model': params['model']['class_name'], **params['model']['params'] }
+        logger.log_hyperparams(params)
         logger.watch(model)
 
     trainer.fit(model, dm)

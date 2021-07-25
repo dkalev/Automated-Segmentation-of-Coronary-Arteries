@@ -1,5 +1,5 @@
 dataset:
-  batch_size: 1
+  batch_size: 32
 trainer:
   gpus: 4
   max_epochs: 100
