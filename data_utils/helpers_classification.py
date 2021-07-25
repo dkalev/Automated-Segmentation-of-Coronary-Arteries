@@ -14,7 +14,7 @@ def get_foreground_idxs(targs:np.ndarray) -> np.ndarray:
 
 def get_background_idxs(targs:np.ndarray, heart_mask:np.ndarray) -> np.ndarray:
     background = (1-targs) * (1-heart_mask)
-    return get_pos_idxs(1-heart_mask)
+    return get_pos_idxs(background)
 
 def filter_invalid_idxs(idxs:np.ndarray, patch_size:int, vol_shape: Tuple[int,int,int]) -> np.ndarray:
     idxs = idxs.copy()

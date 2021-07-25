@@ -1,6 +1,6 @@
 class_name: data_utils.datamodule.AsocaClassificationDataModule
 params:
-  patch_size:  [128, 128, 128] # [80, 192, 160]
+  patch_size: 68
   sample_every_epoch: true
   data_dir: dataset/classification
   sourcepath: dataset/ASOCA2020Data.zip
