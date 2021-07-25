@@ -1,0 +1,8 @@
+class_name: data_utils.datamodule.AsocaClassificationDataModule
+params:
+  patch_size:  [128, 128, 128] # [80, 192, 160]
+  sample_every_epoch: true
+  data_dir: dataset/classification
+  sourcepath: dataset/ASOCA2020Data.zip
+  perc_per_epoch_train: 1.0
+  perc_per_epoch_val: 1.0

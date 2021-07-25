@@ -1,0 +1,16 @@
+class_name: data_utils.datamodule.AsocaDataModule
+params:
+  patch_size:  [128, 128, 128] # [80, 192, 160]
+  patch_stride: [108, 108, 108] # [70, 182, 150]
+  normalize: true
+  data_clip_range: percentile # None, percentile, [0, 400]
+  num_workers: 4
+  resample_vols: false
+  oversample: true
+  crop_empty: false
+  weight_update_step: 0
+  sample_every_epoch: true
+  data_dir: dataset/segmentation
+  sourcepath: dataset/ASOCA2020Data.zip
+  perc_per_epoch_train: 1.0
+  perc_per_epoch_val: 1.0
