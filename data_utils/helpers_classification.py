@@ -146,5 +146,7 @@ def get_patch_coords(vol_paths:List, patch_size:int, n_patches:int=100000):
         vol_hard_mask = get_vol_hard_mask(vol, targs, heart_mask)
         hard_neg_coords = get_hard_neg_coords(vol_hard_mask, targs, already_sampled, patch_size, n_per_vol//4)
         
-        res[vol_id] = np.vstack((pos_coords, neg_coords, hard_neg_coords)).astype(int)
+        coords = np.vstack((pos_coords, neg_coords, hard_neg_coords)).astype(int)
+        coords = np.random.permutation(coords)
+        res[vol_id] = coords
     return res
