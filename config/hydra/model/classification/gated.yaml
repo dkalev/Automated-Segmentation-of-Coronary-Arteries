@@ -2,3 +2,4 @@ class_name: models.classification.equivariant.steerable.GatedCNN
 params:
   kernel_size: 5
   initialize: true
+  repr_type: spherical # one of [trivial, spherical, so3]
