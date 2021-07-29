@@ -1,4 +1,5 @@
 debug: false
+seed: 42
 defaults:
     - dataset: segmentation
     - train: segmentation

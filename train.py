@@ -11,8 +11,11 @@ import json
 
 from omegaconf import DictConfig, OmegaConf, MISSING
 from hydra.core.config_store import ConfigStore
-from hydra.utils import to_absolute_path
 import hydra
+
+import torch
+import random
+import numpy as np
 
 
 @dataclass
@@ -120,6 +123,11 @@ def train(cfg: DictConfig):
         cfg.model.params.initialize = False
 
     print_config(cfg)
+
+    # set seeds for reproducibility
+    torch.manual_seed(cfg.seed)
+    random.seed(cfg.seed)
+    np.random.seed(cfg.seed)
 
     dm_params = { **cfg.train.dataset, **cfg.dataset.params }
     dm: plt.LightningDataModule = get_class(cfg.dataset.class_name)(**dm_params)
