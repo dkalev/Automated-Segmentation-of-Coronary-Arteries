@@ -6,7 +6,7 @@ from data_utils.datamodule import AsocaClassificationDataModule, AsocaDataModule
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Build and preprocess ASOCA dataset')
     parser.add_argument('--rebuild', type=bool, default=False, choices=[True, False])
-    parser.add_argument('--config_path', type=str, default='config/config.yml')
+    parser.add_argument('--config_path', type=str, default='config/config.yaml')
     parser.add_argument('--type', type=str, choices=['class', 'seg'],  default='seg')
     hparams = vars(parser.parse_args())
 

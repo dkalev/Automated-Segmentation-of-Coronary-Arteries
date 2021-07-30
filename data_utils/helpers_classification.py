@@ -90,6 +90,23 @@ def get_pos_coords(targs: np.ndarray, patch_size:int, n_samples:int) -> np.ndarr
     labels = np.ones((len(coords), 1))
     return np.hstack([coords, labels])
 
+def get_nearly_pos_coords(targs: np.ndarray, patch_size:int, n_samples:int, offset:int=8) -> np.ndarray:
+    coords = get_foreground_idxs(targs)
+    nearly_pos_coords = np.vstack((coords - offset, coords + offset))
+    
+    # remove translated patches that are still positive
+    fg_idxs_set = set([tuple(idx) for idx in coords])
+    nearly_pos_idxs_set = set([tuple(idx) for idx in nearly_pos_coords])
+    actually_pos = fg_idxs_set.intersection(nearly_pos_idxs_set)
+    actually_pos_mask = np.array([ tuple(idx) in actually_pos for idx in nearly_pos_coords ])
+    coords = nearly_pos_coords[~actually_pos_mask]
+    
+    coords = filter_invalid_idxs(coords, patch_size, targs.shape)
+    sampled = np.random.choice(len(coords), n_samples, replace=False)
+    coords = coords[sampled]
+    labels = np.zeros((len(coords), 1))
+    return np.hstack([coords, labels])
+
 def get_neg_coords(targs:np.ndarray, heart_mask:np.ndarray, patch_size:int, n_samples:int) -> np.ndarray:
     coords = get_background_idxs(targs, heart_mask)
     coords = filter_invalid_idxs(coords, patch_size, targs.shape)
@@ -140,13 +157,14 @@ def get_patch_coords(vol_paths:List, patch_size:int, n_patches:int=100000):
         heart_mask = heart_mask.astype(np.uint8)
         
         pos_coords = get_pos_coords(targs, patch_size, n_samples=n_per_vol//2)
-        neg_coords = get_neg_coords(targs, heart_mask, patch_size, n_per_vol//4)
-        
+        neg_coords = get_neg_coords(targs, heart_mask, patch_size, n_per_vol//10)
+        neg_near_pos_coords = get_nearly_pos_coords(targs, patch_size, 2*n_per_vol//10, offset=8)        
+
         already_sampled = set([tuple(x) for x in neg_coords[:,:-1].tolist()])
         vol_hard_mask = get_vol_hard_mask(vol, targs, heart_mask)
-        hard_neg_coords = get_hard_neg_coords(vol_hard_mask, targs, already_sampled, patch_size, n_per_vol//4)
+        hard_neg_coords = get_hard_neg_coords(vol_hard_mask, targs, already_sampled, patch_size, 2*n_per_vol//10)
         
-        coords = np.vstack((pos_coords, neg_coords, hard_neg_coords)).astype(int)
+        coords = np.vstack((pos_coords, neg_near_pos_coords, neg_coords, hard_neg_coords)).astype(int)
         coords = np.random.permutation(coords)
         res[vol_id] = coords
     return res
