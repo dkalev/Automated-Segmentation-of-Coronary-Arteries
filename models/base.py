@@ -52,16 +52,17 @@ class Base(pl.LightningModule):
         if dist.is_initialized(): sampler = sampler.sampler
         return sampler
 
-    def configure_optimizers(self):
+    def configure_optimizers(self, max_epochs=None):
         if self.optim_type == 'adam':
             optimizer = Adam(self.parameters(), lr=self.lr, weight_decay=1e-5)
         elif self.optim_type == 'sgd':
             optimizer = SGD(self.parameters(), lr=self.lr, momentum=0.99, nesterov=True, weight_decay=1e-5)
         else:
             raise ValueError(f'Optimizer must be one of [adam, sgd], given: {self.optim_type}')
+        max_epochs = max_epochs or self.trainer.max_epochs
         return {
             'optimizer': optimizer,
             'lr_scheduler': {
-                'scheduler': LambdaLR(optimizer, lambda epoch: (1 - epoch/self.trainer.max_epochs)**0.9),
+                'scheduler': LambdaLR(optimizer, lambda epoch: (1 - epoch/max_epochs)**0.9),
             }
         }
