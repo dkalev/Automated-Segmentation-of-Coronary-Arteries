@@ -8,8 +8,7 @@ from typing import Tuple, List, Callable
 
 def kernel_so3(L: int) -> np.ndarray:
     dims = [ 2 * l + 1 for l in range(L+1)]
-    V = np.concatenate([np.eye(d).flatten() * d for d in dims])
-    V /= np.linalg.norm(V)
+    V = np.concatenate([np.eye(d).flatten() * np.sqrt(d) for d in dims])
     return V
 
 def kernel_sphere(gspace: gspaces.GSpace3D, L: int) -> np.ndarray:
