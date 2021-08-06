@@ -48,3 +48,10 @@ class BaseClassification(Base):
         self.log(f'valid/loss', loss.item())
         self.log(f'valid/acc', self.acc(preds, targs))
         self.log(f'valid/f1' , self.f1(preds, targs))
+    
+    def test_step(self, batch, batch_idx):
+        x, targs = batch
+        logits = self(x)
+        preds = torch.sigmoid(logits)
+        self.log(f'test/acc', self.acc(preds, targs))
+        self.log(f'test/f1' , self.f1(preds, targs))

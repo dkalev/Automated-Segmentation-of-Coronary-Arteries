@@ -8,9 +8,9 @@ from torch.utils.data import Dataset
 
 
 class AsocaDataset(Dataset):
-    def __init__(self, ds_path='dataset/processed', split='train'):
+    def __init__(self, ds_path='dataset/processed', meta_fname='dataset.json', split='train'):
         self.ds_path = Path(ds_path, split)
-        with open(Path(ds_path, 'dataset.json'), 'r') as f:
+        with open(Path(ds_path, meta_fname), 'r') as f:
             meta = json.load(f)
         self.patch_size = np.array(meta['patch_size'])
         self.vol_meta = { int(k): v for k, v in meta['vol_meta'].items() if v['split'] == split }

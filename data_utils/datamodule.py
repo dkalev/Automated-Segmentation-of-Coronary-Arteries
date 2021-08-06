@@ -210,3 +210,12 @@ class AsocaClassificationDataModule(ClassificationDatasetBuilder, LightningDataM
             valid_ds, sampler = self.sync_samplers(sampler, 'valid')
             sampler = DistributedSamplerWrapper(sampler=sampler, num_replicas=dist.get_world_size(), rank=dist.get_rank())
         return DataLoader(valid_ds, sampler=sampler, batch_size=batch_size, num_workers=num_workers, pin_memory=True)
+    
+    def test_dataloader(self, batch_size:int=None, num_workers:int=None) -> Union[DataLoader, List[DataLoader]]:
+        if num_workers is None: num_workers = 3 if dist.is_initialized() else 4
+        if batch_size is None: batch_size = self.batch_size
+        ds = AsocaClassificationDataset( ds_path=self.data_dir, meta_fname='dataset_test.json', split='valid')
+        sampler = ASOCASampler(ds.vol_meta)
+        if dist.is_initialized():
+            sampler = DistributedSamplerWrapper(sampler=sampler, num_replicas=dist.get_world_size(), rank=dist.get_rank())
+        return DataLoader(ds, sampler=sampler, batch_size=batch_size, num_workers=num_workers, pin_memory=True)
