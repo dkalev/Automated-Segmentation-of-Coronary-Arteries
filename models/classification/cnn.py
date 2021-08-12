@@ -18,12 +18,17 @@ class Baseline3DClassification(BaseClassification):
             nn.Conv3d(600, 600, kernel_size=kernel_size, stride=2, bias=False),
             nn.BatchNorm3d(600),
             nn.ReLU(inplace=True),
+
+            nn.Conv3d(600, 300, kernel_size=1, bias=False),
+            nn.BatchNorm3d(300),
+            nn.ReLU(inplace=True),
+            nn.MaxPool3d(kernel_size=3, stride=1),
         )
 
         self.head = nn.Sequential(
             nn.Flatten(),
-            nn.BatchNorm1d(600*5**3),
-            nn.Linear(600*5**3, 512),
+            nn.BatchNorm1d(300*3**3),
+            nn.Linear(300*3**3, 512),
             nn.BatchNorm1d(512),
             nn.ReLU(inplace=True),
             nn.Linear(512, 1)

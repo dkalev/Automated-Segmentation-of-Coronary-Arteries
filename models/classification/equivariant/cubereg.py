@@ -10,6 +10,8 @@ class CubeCNN(BaseEquiv):
 
         type240 = enn.FieldType(self.gspace, 10*[self.gspace.regular_repr])
         type600 = enn.FieldType(self.gspace, 25*[self.gspace.regular_repr])
+        type_final = enn.FieldType(self.gspace, 75*[self.gspace.fibergroup.cube_edges_representation])
+
         self.encoder = enn.SequentialModule(
             enn.R3Conv(self.input_type, type240, kernel_size=kernel_size, stride=2, bias=False, initialize=initialize),
             enn.IIDBatchNorm3d(type240),
@@ -19,12 +21,12 @@ class CubeCNN(BaseEquiv):
             enn.IIDBatchNorm3d(type600),
             enn.ELU(type600, inplace=True),
 
-            enn.R3Conv(type600, type600, kernel_size=kernel_size, stride=2, bias=False, initialize=initialize),
-            enn.IIDBatchNorm3d(type600),
-            enn.ELU(type600, inplace=True),
+            enn.R3Conv(type600, type_final, kernel_size=kernel_size, stride=2, bias=False, initialize=initialize),
+            enn.IIDBatchNorm3d(type_final),
+            enn.ELU(type_final, inplace=True),
         )
-        self.pool = enn.GroupPooling(type600)
-        pool_out = len(type600.representations)
+        self.pool = enn.GroupPooling(type_final)
+        pool_out = len(type_final.representations)
 
         self.head = nn.Sequential(
             nn.Flatten(),

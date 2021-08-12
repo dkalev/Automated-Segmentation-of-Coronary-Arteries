@@ -1,5 +1,5 @@
 import torch
-from torchmetrics import Accuracy, F1
+from torchmetrics import Accuracy, F1, Precision, Recall
 from torch.nn import BCEWithLogitsLoss
 from ..base import Base
 
@@ -14,6 +14,8 @@ class BaseClassification(Base):
         self.crit = BCEWithLogitsLoss()
         self.acc = Accuracy(num_classes=1)
         self.f1 = F1(num_classes=1)
+        self.prec = Precision(num_classes=1)
+        self.recall = Recall(num_classes=1)
         self.lr = lr
         self.debug = debug
 
@@ -33,7 +35,9 @@ class BaseClassification(Base):
 
         self.log(f'train/loss', loss.item())
         self.log(f'train/acc', self.acc(preds, targs))
-        self.log(f'train/f1' , self.f1(preds, targs))
+        self.log(f'train/f1', self.f1(preds, targs))
+        self.log(f'train/prec', self.prec(preds, targs))
+        self.log(f'train/rec', self.recall(preds, targs))
 
         return loss
 
@@ -47,7 +51,9 @@ class BaseClassification(Base):
 
         self.log(f'valid/loss', loss.item())
         self.log(f'valid/acc', self.acc(preds, targs))
-        self.log(f'valid/f1' , self.f1(preds, targs))
+        self.log(f'valid/f1', self.f1(preds, targs))
+        self.log(f'valid/prec', self.prec(preds, targs))
+        self.log(f'valid/rec', self.recall(preds, targs))
     
     def test_step(self, batch, batch_idx):
         x, targs = batch
@@ -55,3 +61,5 @@ class BaseClassification(Base):
         preds = torch.sigmoid(logits)
         self.log(f'test/acc', self.acc(preds, targs))
         self.log(f'test/f1' , self.f1(preds, targs))
+        self.log(f'test/prec', self.prec(preds, targs))
+        self.log(f'test/rec', self.recall(preds, targs))
