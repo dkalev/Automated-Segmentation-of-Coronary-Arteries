@@ -12,10 +12,18 @@ class BaseClassification(Base):
                         **kwargs):
         super().__init__(*args, **kwargs)
         self.crit = BCEWithLogitsLoss()
-        self.acc = Accuracy(num_classes=1)
-        self.f1 = F1(num_classes=1)
-        self.prec = Precision(num_classes=1)
-        self.recall = Recall(num_classes=1)
+        self.train_acc = Accuracy()
+        self.valid_acc = Accuracy()
+        self.test_acc = Accuracy()
+        self.train_f1 = F1()
+        self.valid_f1 = F1()
+        self.test_f1 = F1()
+        self.train_prec = Precision()
+        self.valid_prec = Precision()
+        self.test_prec = Precision()
+        self.train_recall = Recall()
+        self.valid_recall = Recall()
+        self.test_recall = Recall()
         self.lr = lr
         self.debug = debug
 
@@ -34,10 +42,10 @@ class BaseClassification(Base):
         preds = torch.sigmoid(logits)
 
         self.log(f'train/loss', loss.item())
-        self.log(f'train/acc', self.acc(preds, targs))
-        self.log(f'train/f1', self.f1(preds, targs))
-        self.log(f'train/prec', self.prec(preds, targs))
-        self.log(f'train/rec', self.recall(preds, targs))
+        self.log(f'train/acc', self.train_acc(preds, targs), prog_bar=True)
+        self.log(f'train/f1', self.train_f1(preds, targs), prog_bar=True)
+        self.log(f'train/prec', self.train_prec(preds, targs))
+        self.log(f'train/rec', self.train_recall(preds, targs))
 
         return loss
 
@@ -50,16 +58,16 @@ class BaseClassification(Base):
         preds = torch.sigmoid(logits)
 
         self.log(f'valid/loss', loss.item())
-        self.log(f'valid/acc', self.acc(preds, targs))
-        self.log(f'valid/f1', self.f1(preds, targs))
-        self.log(f'valid/prec', self.prec(preds, targs))
-        self.log(f'valid/rec', self.recall(preds, targs))
+        self.log(f'valid/acc', self.valid_acc(preds, targs))
+        self.log(f'valid/f1', self.valid_f1(preds, targs))
+        self.log(f'valid/prec', self.valid_prec(preds, targs))
+        self.log(f'valid/rec', self.valid_recall(preds, targs))
     
     def test_step(self, batch, batch_idx):
         x, targs = batch
         logits = self(x)
         preds = torch.sigmoid(logits)
-        self.log(f'test/acc', self.acc(preds, targs))
-        self.log(f'test/f1' , self.f1(preds, targs))
-        self.log(f'test/prec', self.prec(preds, targs))
-        self.log(f'test/rec', self.recall(preds, targs))
+        self.log(f'test/acc', self.test_acc(preds, targs))
+        self.log(f'test/f1' , self.test_f1(preds, targs))
+        self.log(f'test/prec', self.test_prec(preds, targs))
+        self.log(f'test/rec', self.test_recall(preds, targs))
